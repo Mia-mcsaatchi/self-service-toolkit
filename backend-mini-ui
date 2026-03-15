@@ -1,0 +1,843 @@
+## Block 1 — Data Loader
+Upload a CSV / XLSX file **or** paste a Google Sheet link → select tab → load.  
+Result is stored in `_df`.
+from __future__ import annotations
+
+import io
+import re
+from typing import Optional, List
+from pathlib import Path
+
+import pandas as pd
+
+# Optional Google Sheets/Drive support
+HAVE_GSHEETS = False
+try:  # pragma: no cover
+    import gspread  # type: ignore
+    from google.auth import default as google_auth_default  # type: ignore
+    HAVE_GSHEETS = True
+except Exception:
+    HAVE_GSHEETS = False
+
+# Optional Colab auth + Drive
+HAVE_COLAB = False
+try:  # pragma: no cover
+    from google.colab import auth as colab_auth  # type: ignore
+    from google.colab import drive as colab_drive  # type: ignore
+    HAVE_COLAB = True
+except Exception:
+    HAVE_COLAB = False
+
+# ---- UI (ipywidgets) ----
+try:
+    import ipywidgets as W
+    from IPython.display import display, clear_output, HTML
+except Exception:
+    raise RuntimeError("This block requires ipywidgets. In Colab: !pip install ipywidgets && restart runtime")
+
+# ---------------------------
+# Helpers
+# ---------------------------
+
+def _extract_key(key_or_url: str) -> str:
+    """Extract spreadsheet key from full Google Sheet URL; otherwise return the input as-is."""
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)/", key_or_url)
+    return m.group(1) if m else key_or_url
+
+def list_excel_sheets_from_bytes(data: bytes) -> List[str]:
+    """List worksheet names from an uploaded Excel file."""
+    try:
+        xls = pd.ExcelFile(io.BytesIO(data))
+        return list(xls.sheet_names)
+    except Exception:
+        return []
+
+def read_uploaded_to_df(upload: W.FileUpload, sheet: Optional[str]) -> pd.DataFrame:
+    """Read CSV/XLS/XLSX from upload; supports picking a sheet for Excel."""
+    if not upload.value:
+        raise ValueError("Please upload a CSV or XLSX file.")
+    fileinfo = list(upload.value.values())[0]
+    name = fileinfo["metadata"]["name"].lower()
+    data = fileinfo["content"]
+    if name.endswith(".csv"):
+        return pd.read_csv(io.BytesIO(data))
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        if sheet and sheet != "(first)":
+            return pd.read_excel(io.BytesIO(data), sheet_name=sheet)
+        return pd.read_excel(io.BytesIO(data))
+    raise ValueError("Unsupported file type. Please upload .csv or .xlsx")
+
+def read_gsheet_to_df(url_or_key: str, worksheet: str) -> pd.DataFrame:
+    """Read a Google Sheet worksheet by URL/key + tab name into a DataFrame."""
+    if not HAVE_GSHEETS:
+        raise RuntimeError("gspread/google-auth not installed. In Colab: !pip install gspread google-auth")
+    # Colab OAuth if available
+    if HAVE_COLAB:
+        try:
+            colab_auth.authenticate_user()
+        except Exception:
+            pass
+    creds, _ = google_auth_default()
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(_extract_key(url_or_key))
+    ws = sh.worksheet(worksheet)
+    data = ws.get_all_values()
+    return pd.DataFrame(data[1:], columns=data[0]) if data else pd.DataFrame()
+
+# ---------------------------
+# Widgets
+# ---------------------------
+
+source = W.ToggleButtons(options=[("Upload file", "file"), ("Google Sheet", "gsheet")], description="Source:")
+
+# File path
+file_upl = W.FileUpload(accept=".csv,.xlsx,.xls", multiple=False, description="Upload CSV/XLSX")
+file_sheet_dropdown = W.Dropdown(options=[], description="Worksheet:")
+file_sheet_box = W.VBox([file_sheet_dropdown])
+
+# Google Sheet path
+sheet_url = W.Text(placeholder="https://docs.google.com/spreadsheets/d/…", description="Sheet URL:")
+gsheet_tabs_dd = W.Dropdown(options=[], description="Worksheet:")
+
+# Google auth/mount
+auth_btn = W.Button(description="Authorize Google", button_style="info")
+mount_drive_cb = W.Checkbox(value=False, description="Mount Google Drive (Colab)")
+fetch_tabs_btn = W.Button(description="Fetch tabs", tooltip="Fetch worksheet names")
+
+auth_out = W.Output()
+
+# Actions & outputs
+load_btn = W.Button(description="Load table", button_style="primary")
+status_out = W.Output()
+summary_out = W.Output()
+
+# State
+_df: Optional[pd.DataFrame] = None
+_source_descr: str = ""
+_gs_authed: bool = False
+_drive_mounted: bool = False
+
+# ---------------------------
+# Callbacks
+# ---------------------------
+
+def _on_source_change(change=None):
+    with status_out:
+        clear_output()
+    with summary_out:
+        clear_output()
+    if source.value == "file":
+        file_box.layout.display = ""
+        gsheet_box.layout.display = "none"
+    else:
+        file_box.layout.display = "none"
+        gsheet_box.layout.display = ""
+
+def _on_file_upload_change(change=None):
+    # when a file is uploaded, try to list sheet names if XLSX
+    file_sheet_dropdown.options = []
+    if file_upl.value:
+        fileinfo = list(file_upl.value.values())[0]
+        name = fileinfo["metadata"]["name"].lower()
+        if name.endswith(".xlsx") or name.endswith(".xls"):
+            sheets = list_excel_sheets_from_bytes(fileinfo["content"]) or []
+            if sheets:
+                file_sheet_dropdown.options = ["(first)"] + sheets
+                file_sheet_dropdown.value = "(first)"
+
+def _do_auth(_):
+    global _gs_authed
+    with auth_out:
+        clear_output()
+        if not HAVE_GSHEETS:
+            print("Missing packages: gspread/google-auth. In Colab: !pip install gspread google-auth")
+            return
+        try:
+            if HAVE_COLAB:
+                colab_auth.authenticate_user()
+                _gs_authed = True
+                print("Google auth complete (Colab).")
+            else:
+                creds, _ = google_auth_default()
+                _gs_authed = creds is not None
+                print("Using application default credentials.")
+        except Exception as e:
+            print(f"Auth error: {e}")
+
+def _fetch_tabs(_):
+    with auth_out:
+        clear_output()
+        try:
+            if not sheet_url.value.strip():
+                print("Enter a Google Sheet URL first.")
+                return
+            if HAVE_COLAB and not _gs_authed:
+                print("Run Authorize Google first.")
+                return
+            creds, _ = google_auth_default()
+            gc = gspread.authorize(creds)
+            sh = gc.open_by_key(_extract_key(sheet_url.value.strip()))
+            tabs = [ws.title for ws in sh.worksheets()]
+            if tabs:
+                gsheet_tabs_dd.options = tabs
+                gsheet_tabs_dd.value = tabs[0]
+                print(f"Found {len(tabs)} tab(s). Selected: {tabs[0]}")
+            else:
+                print("No tabs found or access denied.")
+        except Exception as e:
+            print(f"Failed to fetch tabs: {e}")
+
+def _do_load_table(_):
+    global _df, _source_descr, _drive_mounted
+    with status_out:
+        clear_output()
+        try:
+            # read
+            if source.value == "file":
+                sheet = None
+                if file_sheet_dropdown.options and file_sheet_dropdown.value and file_sheet_dropdown.value != "(first)":
+                    sheet = file_sheet_dropdown.value
+                df = read_uploaded_to_df(file_upl, sheet)
+                _source_descr = f"Uploaded file (sheet={sheet or 'first'})"
+            else:
+                # Colab auth/mount flow
+                if HAVE_COLAB and not _gs_authed:
+                    print("Attempting Colab auth… (Click 'Authorize Google' if prompted)")
+                    _do_auth(None)
+                if mount_drive_cb.value and HAVE_COLAB and not _drive_mounted:
+                    try:
+                        colab_drive.mount('/content/drive')
+                        print("Drive mounted at /content/drive")
+                    except Exception as e:
+                        print(f"Drive mount warning: {e}")
+                    finally:
+                        _drive_mounted = True
+                if not sheet_url.value.strip():
+                    raise ValueError("Enter a Google Sheet URL and click 'Fetch tabs'.")
+                if not gsheet_tabs_dd.options:
+                    raise ValueError("Click 'Fetch tabs' to load worksheet names, then pick one.")
+                if not gsheet_tabs_dd.value:
+                    raise ValueError("Pick a worksheet from the dropdown.")
+                df = read_gsheet_to_df(sheet_url.value.strip(), gsheet_tabs_dd.value)
+                _source_descr = f"Google Sheet ({gsheet_tabs_dd.value})"
+
+            if df.empty:
+                raise ValueError("Loaded table is empty or has no header row.")
+            _df = df
+
+            # summary
+            print(f"Loaded ✓  rows={len(df)}  cols={len(df.columns)}  from: {_source_descr}")
+
+            with summary_out:
+                clear_output()
+                # List columns
+                print("Column titles:")
+                for i, c in enumerate(df.columns):
+                    print(f"  {i+1:>3}. {c}")
+                # Show a basic preview
+                print("\nTop 10 rows (quick preview):")
+                display(df.head(10))
+
+        except Exception as e:
+            print(f"Error: {e}")
+
+# ---------------------------
+# Wire UI
+# ---------------------------
+
+auth_btn.on_click(_do_auth)
+fetch_tabs_btn.on_click(_fetch_tabs)
+source.observe(_on_source_change, names="value")
+file_upl.observe(_on_file_upload_change, names="value")
+load_btn.on_click(_do_load_table)
+
+# ---------------------------
+# Layout
+# ---------------------------
+
+file_box = W.VBox([
+    file_upl,
+    file_sheet_box,  # populated only if the upload is an Excel file
+])
+
+gsheet_box = W.VBox([
+    sheet_url,
+    gsheet_tabs_dd,
+    W.HBox([auth_btn, mount_drive_cb, fetch_tabs_btn]),
+    auth_out,
+])
+
+controls_row1 = W.HBox([source])
+controls_row2 = W.HBox([file_box, gsheet_box])
+controls_row3 = W.HBox([load_btn])
+
+# Initial visibility
+file_box.layout.display = ""   # default to file upload
+gsheet_box.layout.display = "none"
+
+# ---------------------------
+# Render
+# ---------------------------
+
+display(W.VBox([
+    W.HTML("<b>Step 1 — Load your data</b>"),
+    W.HTML("<i>Upload a CSV/XLSX or connect a Google Sheet, select the tab, then click ‘Load table’.</i>"),
+    controls_row1,
+    controls_row2,
+    controls_row3,
+    status_out,
+    W.HTML("<hr>"),
+    W.HTML("<b>Summary</b>"),
+    summary_out,
+]))
+
+## Block K — OpenAI API Key
+Paste your key once; it is stored in `os.environ['OPENAI_API_KEY']` for the session.
+
+from __future__ import annotations
+import os
+
+try:
+    import ipywidgets as W
+    from IPython.display import display, clear_output
+except Exception:
+    raise RuntimeError("This block needs ipywidgets. In Colab: !pip install ipywidgets && restart runtime")
+
+# Prefer the new SDK; fall back to legacy only if needed
+_new_sdk = True
+try:
+    from openai import OpenAI  # type: ignore
+except Exception:
+    _new_sdk = False
+    try:
+        import openai  # type: ignore
+    except Exception:
+        openai = None  # type: ignore
+
+# Widgets
+api_key = W.Password(description="API key:", placeholder="sk-...", layout=W.Layout(width="60%"))
+do_check = W.Checkbox(value=False, description="Run quick connectivity check")
+set_btn  = W.Button(description="Set key", button_style="success")
+clear_btn= W.Button(description="Clear key", button_style="warning")
+out = W.Output()
+
+def _set(_):
+    with out:
+        clear_output()
+        key = (api_key.value or "").strip()
+        if not key:
+            print("Please paste your OpenAI API key.")
+            return
+        if not key.startswith("sk-"):
+            print("Warning: this doesn't look like an OpenAI key (expected to start with 'sk-'). Proceeding…")
+        os.environ["OPENAI_API_KEY"] = key
+        print("✅ Key set for this session (env: OPENAI_API_KEY).")
+        if do_check.value:
+            try:
+                if _new_sdk:
+                    client = OpenAI(api_key=key)
+                    _ = client.models.list()  # lightweight
+                elif openai is not None:
+                    openai.api_key = key
+                    _ = openai.Model.list()
+                else:
+                    print("OpenAI SDK not installed; skipping check.")
+                    return
+                print("Connectivity check: OK.")
+            except Exception as e:
+                print(f"Connectivity check failed (you can continue and set later): {e}")
+
+def _clear(_):
+    with out:
+        clear_output()
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+            print("🔒 Key cleared from environment for this session.")
+        else:
+            print("No OPENAI_API_KEY found.")
+        api_key.value = ""
+
+set_btn.on_click(_set)
+clear_btn.on_click(_clear)
+
+display(W.VBox([
+    W.HTML("<b>OpenAI API setup</b>"),
+    W.HBox([api_key]),
+    W.HBox([do_check]),
+    W.HBox([set_btn, clear_btn]),
+    out
+]))
+
+
+## Block P — Base Prompt
+Defines the system-level instruction used by all LLM calls.
+
+import os
+from __future__ import annotations
+from pathlib import Path
+
+# ---- Canonical base prompt (edit here if needed) ----
+BASE_PROMPT_TEXT = (
+    "You are a top‑performing data analyst/consultant. "
+    "Write clear, concise outputs optimized for analytics: each field should be a single cell‑friendly string. "
+    "If the source text is ambiguous or lacks evidence, reply with the token 'unsure'. "
+    "Do not add extra commentary or headings beyond the requested fields."
+)
+
+# ---- Simple accessors ----
+def get_base_prompt() -> str:
+    """Return the canonical base prompt as a string."""
+    return BASE_PROMPT_TEXT
+
+
+def save_base_prompt(path: str) -> str:
+    """Write the base prompt to a UTF‑8 text file and return the absolute path."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(BASE_PROMPT_TEXT, encoding="utf-8")
+    return str(p.resolve())
+
+# ---- Minimal tests (optional to run manually) ----
+if __name__ == "__main__":
+    assert isinstance(get_base_prompt(), str) and len(get_base_prompt()) > 10
+    tmp = save_base_prompt("/tmp/base_prompt.txt")
+    assert Path(tmp).exists()
+    print("Block P tests passed ✔")
+
+# Block P/QS Loader & Preview (optional helper)
+try:
+    base_prompt = get_base_prompt()
+    print("✅ Loaded Base Prompt:")
+    print("-" * 60)
+    print(base_prompt)
+    print("-" * 60)
+except NameError:
+    print("Run the Block P cell first (Base Prompt Repository).")
+
+
+## Block C — Field Config Builder
+1. Click **Refresh from DataFrame** (requires Block 1 to have run).  
+2. Click **Add field** for each output column you want.  
+3. Fill in `field name` + `field prompt` + select source columns.  
+4. Config is stored in `_fields_cfg` — no file save needed before running Block R.
+
+from __future__ import annotations
+import json
+from typing import List, Dict, Any
+import pandas as pd
+
+try:
+    import ipywidgets as W
+    from IPython.display import display, clear_output
+except Exception:
+    raise RuntimeError("pip install ipywidgets")
+
+# Base prompt used by all LLM calls
+_BASE_PROMPT = (
+    "You are a top-performing data analyst/consultant. "
+    "Write clear, concise outputs optimized for analytics. "
+    "Do not add extra commentary beyond the requested fields."
+)
+
+# ── State ──────────────────────────────────────────────────────────────────────
+_columns: List[str] = []
+_field_rows: List[Dict[str, Any]] = []
+_fields_cfg: Dict[str, Any] = {"base_prompt": _BASE_PROMPT, "fields": []}
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def _auto_detect_columns() -> List[str]:
+    for name in ["_df", "_b1_df", "df"]:
+        if name in globals():
+            obj = globals()[name]
+            if isinstance(obj, pd.DataFrame) and len(obj.columns) > 0:
+                return list(obj.columns)
+    return []
+
+def _apply_columns_to_rows():
+    for row in _field_rows:
+        prev = list(row["reads_from"].value) if row["reads_from"].value else []
+        row["reads_from"].options = _columns
+        row["reads_from"].value = tuple(c for c in prev if c in _columns)
+
+def _sync_config():
+    global _fields_cfg
+    fields = []
+    for r in _field_rows:
+        mode   = r["mode"].value          # "independent" | "dependent"
+        prompt = (r["prompt"].value or "").strip()
+        rfrom  = list(r["reads_from"].value) if r["reads_from"].value else []
+
+        if mode == "independent":
+            fname = (r["name"].value or "").strip()
+            if fname:
+                fields.append({"name": fname, "prompt": prompt, "reads_from": rfrom})
+        else:
+            # dependent group: one prompt, multiple output column names
+            raw_names = (r["names"].value or "").strip()
+            group_names = [n.strip() for n in raw_names.split(",") if n.strip()]
+            for fname in group_names:
+                fields.append({"name": fname, "prompt": prompt, "reads_from": rfrom})
+
+    _fields_cfg = {"base_prompt": _BASE_PROMPT, "fields": fields}
+    with config_status:
+        clear_output()
+        if fields:
+            names = [f["name"] for f in fields]
+            print(f"\u2705 Config ready \u2014 {len(fields)} field(s): {names}")
+        else:
+            print("Add at least one field.")
+
+def _make_field_row():
+    # ── Mode selector ──────────────────────────────────────────────────────────
+    mode_dd = W.Dropdown(
+        options=[("Independent", "independent"), ("Dependent group", "dependent")],
+        description="Type:",
+        layout=W.Layout(width="220px"),
+    )
+
+    # ── Independent widgets ────────────────────────────────────────────────────
+    name_w = W.Text(
+        placeholder="e.g. sentiment",
+        description="Field name:",
+        layout=W.Layout(width="50%"),
+    )
+
+    # ── Dependent widgets ──────────────────────────────────────────────────────
+    names_w = W.Text(
+        placeholder="e.g. tag, confidence, evidence",
+        description="Field names:",
+        layout=W.Layout(width="70%"),
+    )
+    names_hint = W.HTML(
+        "<small style='color:#666'>Comma-separated output column names — "
+        "one shared prompt fills all of them.</small>"
+    )
+    dep_box = W.VBox([names_w, names_hint])
+    dep_box.layout.display = "none"   # hidden until mode switches
+
+    # ── Shared widgets ─────────────────────────────────────────────────────────
+    prompt_w = W.Textarea(
+        placeholder="What should this field (or these fields) return?",
+        description="Prompt:",
+        layout=W.Layout(width="100%", height="75px"),
+    )
+    reads_w = W.SelectMultiple(
+        options=_columns, description="Reads from:",
+        layout=W.Layout(width="50%", height="90px"),
+    )
+    remove_btn = W.Button(description="\u2716 Remove", button_style="danger")
+
+    card = W.VBox([
+        W.HBox([mode_dd]),
+        name_w,
+        dep_box,
+        prompt_w,
+        W.HBox([reads_w, remove_btn]),
+        W.HTML("<hr style='margin:3px 0'>"),
+    ])
+
+    row = {
+        "mode": mode_dd,
+        "name": name_w,
+        "names": names_w,
+        "prompt": prompt_w,
+        "reads_from": reads_w,
+        "box": card,
+    }
+
+    # ── Mode toggle ────────────────────────────────────────────────────────────
+    def _on_mode(change):
+        is_dep = mode_dd.value == "dependent"
+        name_w.layout.display  = "none" if is_dep else ""
+        dep_box.layout.display = ""     if is_dep else "none"
+        _sync_config()
+
+    mode_dd.observe(_on_mode, names="value")
+
+    def _remove(_):
+        _field_rows.remove(row)
+        fields_box.children = tuple(r["box"] for r in _field_rows)
+        _sync_config()
+
+    remove_btn.on_click(_remove)
+    name_w.observe( lambda _: _sync_config(), names="value")
+    names_w.observe(lambda _: _sync_config(), names="value")
+    prompt_w.observe(lambda _: _sync_config(), names="value")
+    reads_w.observe( lambda _: _sync_config(), names="value")
+    return row
+
+# ── Widgets ────────────────────────────────────────────────────────────────────
+refresh_btn    = W.Button(description="Refresh from DataFrame", button_style="info")
+manual_cols    = W.Text(placeholder="colA, colB, colC", description="Manual cols:", layout=W.Layout(width="65%"))
+use_manual_btn = W.Button(description="Use manual")
+cols_status    = W.Output()
+add_field_btn  = W.Button(description="\u2795 Add field", button_style="primary")
+fields_box     = W.VBox([])
+config_status  = W.Output()
+
+# ── Callbacks ──────────────────────────────────────────────────────────────────
+def _refresh_columns(_):
+    global _columns
+    with cols_status:
+        clear_output()
+        cols = _auto_detect_columns()
+        if not cols:
+            print("No DataFrame found \u2014 run Block 1 first.")
+            return
+        _columns = cols
+        print(f"\u2705 {len(_columns)} columns loaded from DataFrame.")
+    _apply_columns_to_rows()
+
+def _use_manual(_):
+    global _columns
+    with cols_status:
+        clear_output()
+        raw = (manual_cols.value or "").strip()
+        if not raw:
+            print("Enter comma-separated column names first.")
+            return
+        _columns = [c.strip() for c in raw.split(",") if c.strip()]
+        print(f"\u2705 {len(_columns)} columns set manually.")
+    _apply_columns_to_rows()
+
+def _add_field(_):
+    row = _make_field_row()
+    _field_rows.append(row)
+    fields_box.children = tuple(r["box"] for r in _field_rows)
+    _sync_config()
+
+refresh_btn.on_click(_refresh_columns)
+use_manual_btn.on_click(_use_manual)
+add_field_btn.on_click(_add_field)
+
+# ── Render ─────────────────────────────────────────────────────────────────────
+display(W.VBox([
+    W.HTML("<b>Column source</b>"),
+    W.HBox([refresh_btn]),
+    W.HBox([manual_cols, use_manual_btn]),
+    cols_status,
+    W.HTML("<hr>"),
+    W.HTML("<b>Output fields</b>"),
+    W.HBox([add_field_btn]),
+    fields_box,
+    W.HTML("<hr>"),
+    config_status,
+]))
+
+
+## Block R — Run & Export
+Reads `_df` (Block 1) and `_fields_cfg` (Block C).  
+**One API call per row** returns all fields at once via structured JSON output.  
+Export to local CSV / XLSX or write back to a Google Sheet.
+
+from __future__ import annotations
+import os, re, json, asyncio
+import nest_asyncio
+from typing import List, Dict, Any, Tuple
+import pandas as pd
+import aiohttp
+from tqdm.asyncio import tqdm
+
+try:
+    nest_asyncio.apply()
+except Exception:
+    pass
+
+# ── CONFIG — edit these before running ────────────────────────────────────────
+OUTPUT_TARGET     = "local"       # "local" | "gsheet"
+OUTPUT_PATH       = "/content/output.csv"   # used when OUTPUT_TARGET == "local"
+OUTPUT_FORMAT     = "csv"                   # "csv" | "xlsx"
+GSHEET_URL_OR_KEY = "https://docs.google.com/spreadsheets/d/XXXX/edit"
+GSHEET_WORKSHEET  = "Processed"
+MAX_ROWS          = 0             # 0 = all rows
+MAX_CONCURRENT    = 10
+RETRIES           = 2
+TIMEOUT_SECONDS   = 45
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def _pick_df() -> pd.DataFrame:
+    for name in ["_df", "_b1_df", "df"]:
+        obj = globals().get(name)
+        if isinstance(obj, pd.DataFrame):
+            return obj
+    raise RuntimeError("No DataFrame found — run Block 1 first.")
+
+def _extract_key(url: str) -> str:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9\-_]+)/", url)
+    return m.group(1) if m else url
+
+# ── Prompt builder — ONE prompt for ALL fields ────────────────────────────────
+def _build_row_prompt(base_prompt: str, fields: List[Dict[str, Any]], row: pd.Series) -> str:
+    field_names = {(f.get("name") or "").strip() for f in fields}
+
+    # Separate source columns (from the original data) from output fields (other generated fields)
+    all_cols: List[str] = []
+    for f in fields:
+        for c in (f.get("reads_from") or []):
+            if c not in all_cols and c not in field_names:
+                all_cols.append(c)
+
+    context = "\n".join(
+        f"- {col}: {'' if pd.isna(row.get(col)) else str(row.get(col, ''))}"
+        for col in all_cols if col in row.index
+    ) or "(no source columns)"
+
+    # Build per-field instructions; when a field depends on another output field, say so explicitly
+    instruction_lines = []
+    for f in fields:
+        name = (f.get("name") or "").strip()
+        if not name:
+            continue
+        prompt_text = (f.get("prompt") or "").strip()
+        deps = [c for c in (f.get("reads_from") or []) if c in field_names and c != name]
+        dep_note = f" (based on the value you assigned to {', '.join(deps)})" if deps else ""
+        instruction_lines.append(f'  "{name}": {prompt_text}{dep_note}')
+
+    instructions = "\n".join(instruction_lines)
+    keys = ", ".join(f'"{f["name"]}"' for f in fields if (f.get("name") or "").strip())
+
+    return (
+        f"{base_prompt}\n\n"
+        f"Row data:\n{context}\n\n"
+        f"Return a JSON object with EXACTLY these keys: {{{keys}}}\n"
+        f"Fill the fields IN ORDER — later fields may reference earlier ones.\n"
+        f"Field instructions:\n{instructions}\n\n"
+        "Rules:\n"
+        "  • Each value must be plain text (no nested objects or markdown).\n"
+        "  • If a field is ambiguous or missing, use 'unsure'.\n"
+        "  • Return ONLY the JSON object, nothing else.\n"
+    )
+
+# ── Async runner ───────────────────────────────────────────────────────────────
+class _AsyncRunner:
+    def __init__(self, api_key: str, max_concurrent: int, retries: int, timeout: int):
+        self.headers   = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.retries   = retries
+        self.timeout   = aiohttp.ClientTimeout(total=timeout)
+
+    async def _one(self, session: aiohttp.ClientSession, prompt: str) -> str:
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            "max_tokens": 512,
+            "response_format": {"type": "json_object"},   # structured output
+        }
+        backoff = 1.0
+        for attempt in range(self.retries + 1):
+            try:
+                async with self.semaphore:
+                    async with session.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=self.headers, json=payload,
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return (data["choices"][0]["message"]["content"] or "{}").strip()
+                        await resp.text()
+                        if attempt < self.retries:
+                            await asyncio.sleep(backoff); backoff *= 2
+                        else:
+                            return "{}"
+            except Exception:
+                if attempt < self.retries:
+                    await asyncio.sleep(backoff); backoff *= 2
+                else:
+                    return "{}"
+        return "{}"
+
+    async def run_all(self, prompts: List[str]) -> List[str]:
+        async with aiohttp.ClientSession(
+            timeout=self.timeout,
+            connector=aiohttp.TCPConnector(limit=None),
+        ) as session:
+            return await tqdm.gather(
+                *[self._one(session, p) for p in prompts],
+                desc="Processing rows",
+            )
+
+# ── Pipeline ───────────────────────────────────────────────────────────────────
+async def _async_pipeline(df: pd.DataFrame, cfg: Dict[str, Any], max_rows: int) -> pd.DataFrame:
+    fields = [f for f in cfg.get("fields", []) if (f.get("name") or "").strip()]
+    if not fields:
+        raise ValueError("No fields defined — add fields in Block C.")
+
+    df = df.copy()
+    for f in fields:
+        if f["name"] not in df.columns:
+            df[f["name"]] = ""
+
+    N = min(max_rows, len(df)) if max_rows > 0 else len(df)
+
+    # One prompt per row (contains all fields)
+    prompts = [
+        _build_row_prompt(cfg.get("base_prompt", ""), fields, df.iloc[i])
+        for i in range(N)
+    ]
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set — run Block K.")
+
+    runner  = _AsyncRunner(api_key, MAX_CONCURRENT, RETRIES, TIMEOUT_SECONDS)
+    answers = await runner.run_all(prompts)
+
+    field_names = [f["name"] for f in fields]
+    for i, raw in enumerate(answers):
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = {}
+        for fname in field_names:
+            df.iat[i, df.columns.get_loc(fname)] = parsed.get(fname, "unsure")
+
+    return df
+
+# ── Google Sheets writer ───────────────────────────────────────────────────────
+def _write_gsheet(df: pd.DataFrame, url: str, tab: str) -> None:
+    import gspread
+    from google.auth import default as _gad
+    from gspread_dataframe import set_with_dataframe
+    try:
+        from google.colab import auth as _ca
+        _ca.authenticate_user()
+    except Exception:
+        pass
+    creds, _ = _gad()
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(_extract_key(url))
+    try:
+        ws = sh.worksheet(tab)
+    except Exception:
+        ws = sh.add_worksheet(title=tab, rows="1000", cols="50")
+    set_with_dataframe(ws, df, include_index=False, resize=True)
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+def run_and_export(max_rows: int = MAX_ROWS) -> pd.DataFrame:
+    cfg = globals().get("_fields_cfg")
+    if not cfg or not cfg.get("fields"):
+        raise RuntimeError("No field config found — run Block C and add at least one field.")
+
+    df   = _pick_df().copy()
+    loop = asyncio.get_event_loop()
+    result = loop.run_until_complete(_async_pipeline(df, cfg, max_rows=max_rows))
+
+    if OUTPUT_TARGET == "local":
+        path = OUTPUT_PATH
+        if OUTPUT_FORMAT == "xlsx" or path.endswith(".xlsx"):
+            result.to_excel(path, index=False, engine="openpyxl")
+        else:
+            result.to_csv(path, index=False, encoding="utf-8")
+        print(f"✅ Saved → {path}")
+    elif OUTPUT_TARGET == "gsheet":
+        _write_gsheet(result, GSHEET_URL_OR_KEY, GSHEET_WORKSHEET)
+        print(f"✅ Written to Google Sheet tab '{GSHEET_WORKSHEET}'")
+    else:
+        raise ValueError("OUTPUT_TARGET must be 'local' or 'gsheet'")
+
+    return result
+
+result_df = run_and_export()
+result_df
