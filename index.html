@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self-Service Toolkit</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 40px; text-align: center;
+        }
+        .header h1 { font-size: 32px; margin-bottom: 10px; font-weight: 700; }
+        .header p  { opacity: 0.9; font-size: 16px; }
+
+        .connection-banner {
+            background: #fff3cd; color: #856404;
+            padding: 12px 40px; text-align: center;
+            border-bottom: 2px solid #ffc107;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .connection-banner.connected { background: #d4edda; color: #155724; border-bottom-color: #28a745; }
+
+        .status-indicator {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #ffc107; animation: pulse 2s infinite;
+        }
+        .status-indicator.connected { background: #28a745; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+        .main-content { padding: 40px; }
+
+        .section {
+            margin-bottom: 40px; padding: 30px;
+            background: #f8f9fa; border-radius: 12px; border: 2px solid #e9ecef;
+        }
+        .section h2 {
+            font-size: 22px; margin-bottom: 20px; color: #495057;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .section-number {
+            width: 36px; height: 36px; flex-shrink: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 16px;
+        }
+
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: 600; margin-bottom: 8px; color: #495057; font-size: 14px; }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        input[type="file"],
+        textarea, select {
+            width: 100%; padding: 12px 14px;
+            border: 2px solid #dee2e6; border-radius: 10px;
+            font-size: 14px; font-family: inherit; transition: all .2s;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none; border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,.1);
+        }
+        textarea { resize: vertical; min-height: 90px; }
+
+        .btn {
+            padding: 12px 24px; border: none; border-radius: 10px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            transition: all .2s; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;
+        }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(102,126,234,.4); }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover:not(:disabled) { background: #218838; transform: translateY(-1px); }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
+        .btn-remove { background: #dc3545; color: white; padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+        .btn-remove:hover { background: #c82333; }
+
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+        .tab {
+            padding: 10px 20px; border-radius: 8px; border: 2px solid #dee2e6;
+            background: white; cursor: pointer; font-weight: 600; font-size: 13px;
+            color: #6c757d; transition: all .2s;
+        }
+        .tab.active { background: linear-gradient(135deg,#667eea,#764ba2); color: white; border-color: transparent; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Field cards */
+        .field-card {
+            background: white; padding: 20px;
+            border-radius: 10px; margin-bottom: 16px; border: 2px solid #dee2e6;
+        }
+        .field-card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 16px; gap: 12px;
+        }
+        .field-type-badge {
+            display: inline-block; padding: 3px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+        }
+        .badge-independent { background: #e0e7ff; color: #3730a3; }
+        .badge-dependent   { background: #fef3c7; color: #92400e; }
+
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+        .multi-select {
+            border: 2px solid #dee2e6; border-radius: 10px;
+            padding: 10px; max-height: 180px; overflow-y: auto; background: white;
+        }
+        .multi-select label {
+            display: flex; align-items: center; padding: 7px 8px; margin: 2px 0;
+            cursor: pointer; border-radius: 6px; font-weight: normal; transition: background .15s;
+        }
+        .multi-select label:hover { background: #f0f4ff; }
+        .multi-select input[type="checkbox"] { width: 16px; height: 16px; margin-right: 10px; flex-shrink: 0; }
+
+        /* Table */
+        .table-wrapper { max-height: 380px; overflow: auto; border-radius: 10px; border: 2px solid #dee2e6; margin-top: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; background: white; }
+        th, td { padding: 11px 13px; text-align: left; border: 1px solid #dee2e6; }
+        th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+        tr:hover td { background: #f8f9fa; }
+        td { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Stats */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-bottom: 16px; }
+        .stat-card { background: white; padding: 18px; border-radius: 10px; border: 2px solid #dee2e6; text-align: center; }
+        .stat-value { font-size: 26px; font-weight: 700; color: #667eea; margin-bottom: 4px; }
+        .stat-label { font-size: 11px; color: #6c757d; text-transform: uppercase; font-weight: 600; }
+
+        /* Alerts */
+        .alert { padding: 12px 16px; border-radius: 10px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+        .alert-info    { background: #d1ecf1; color: #0c5460; border: 2px solid #bee5eb; }
+        .alert-success { background: #d4edda; color: #155724; border: 2px solid #c3e6cb; }
+        .alert-error   { background: #f8d7da; color: #721c24; border: 2px solid #f5c6cb; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 2px solid #ffc107; }
+
+        .hidden { display: none !important; }
+
+        .spinner {
+            border: 3px solid #f3f3f3; border-top: 3px solid #667eea;
+            border-radius: 50%; width: 20px; height: 20px;
+            animation: spin 1s linear infinite; flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        small { color: #6c757d; font-size: 12px; display: block; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <div class="header">
+        <h1>&#x2728; Self-Service Toolkit</h1>
+        <p>Connect to your Colab backend and enrich data with AI-powered prompts</p>
+    </div>
+
+    <div class="connection-banner" id="connectionBanner">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <span id="connectionStatus">Not connected to backend</span>
+    </div>
+
+    <div class="main-content">
+
+        <!-- ── Step 1: Connect ───────────────────────────────────────────── -->
+        <div class="section">
+            <h2><span class="section-number">1</span> Connect to Colab Backend</h2>
+            <div class="form-group">
+                <label>Colab Tunnel URL</label>
+                <input type="text" id="backendUrl" placeholder="https://xxxxx.trycloudflare.com">
+                <small>Paste the Cloudflare tunnel URL from your Colab notebook</small>
+            </div>
+            <button class="btn btn-primary" onclick="checkHealth()">&#x1F517; Connect</button>
+        </div>
+
+        <!-- ── Step 2: Load Data ─────────────────────────────────────────── -->
+        <div class="section">
+            <h2><span class="section-number">2</span> Load Your Data</h2>
+
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('file')">&#x1F4C2; Upload File</div>
+                <div class="tab" onclick="switchTab('gsheet')">&#x1F4CA; Google Sheet</div>
+            </div>
+
+            <!-- File upload tab -->
+            <div class="tab-content active" id="tab-file">
+                <div class="form-group">
+                    <label>CSV or Excel file (parsed in-browser, then sent to backend)</label>
+                    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+                </div>
+                <div class="form-group hidden" id="sheetSelectGroup">
+                    <label>Select Worksheet</label>
+                    <select id="sheetSelect"></select>
+                </div>
+                <button class="btn btn-primary" id="uploadBtn" disabled onclick="uploadParsedData()">&#x1F4E4; Upload to Backend</button>
+            </div>
+
+            <!-- Google Sheet tab -->
+            <div class="tab-content" id="tab-gsheet">
+                <div class="alert alert-warning">
+                    &#x26A0;&#xFE0F; Your Google Sheet must be <strong>published to the web</strong>.<br>
+                    In Google Sheets: <em>File → Share → Publish to web → Publish</em>, then paste the sheet URL below.
+                </div>
+                <div class="form-group">
+                    <label>Google Sheet URL</label>
+                    <input type="text" id="gsheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+                </div>
+                <div class="form-group">
+                    <label>Sheet / Tab name <span style="font-weight:400;color:#999">(leave blank for first sheet)</span></label>
+                    <input type="text" id="gsheetTab" placeholder="Sheet1">
+                </div>
+                <button class="btn btn-primary" onclick="fetchGSheet()">&#x1F504; Fetch Sheet</button>
+            </div>
+
+            <!-- Data preview (shared) -->
+            <div id="dataPreview" class="hidden" style="margin-top:24px;">
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="stat-value" id="rowCount">0</div><div class="stat-label">Rows</div></div>
+                    <div class="stat-card"><div class="stat-value" id="colCount">0</div><div class="stat-label">Columns</div></div>
+                </div>
+                <div class="table-wrapper"><table id="previewTable"></table></div>
+            </div>
+        </div>
+
+        <!-- ── Step 3: API Key ───────────────────────────────────────────── -->
+        <div class="section">
+            <h2><span class="section-number">3</span> Set OpenAI API Key</h2>
+            <div class="form-group">
+                <label>OpenAI API Key</label>
+                <input type="password" id="apiKey" placeholder="sk-..." disabled>
+                <small>Sent directly to your Colab backend — never stored here</small>
+            </div>
+            <button class="btn btn-primary" id="setKeyBtn" disabled onclick="setApiKey()">&#x1F511; Set Key</button>
+            <div id="apiKeyStatus" class="hidden" style="margin-top:14px;">
+                <div class="alert alert-success">&#x2705; API key set — you can now configure fields.</div>
+            </div>
+        </div>
+
+        <!-- ── Step 4: Fields ────────────────────────────────────────────── -->
+        <div class="section">
+            <h2><span class="section-number">4</span> Configure Output Fields</h2>
+
+            <div class="form-group">
+                <label>Base Prompt <span style="font-weight:400;color:#999">(system instruction applied to all fields)</span></label>
+                <textarea id="basePrompt" disabled>You are a top-performing data analyst/consultant. Write clear, concise outputs optimized for analytics: each field should be a single cell-friendly string. If the source text is ambiguous or lacks evidence, reply with the token 'unsure'. Do not add extra commentary or headings beyond the requested fields.</textarea>
+            </div>
+
+            <!-- Field type guide -->
+            <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:220px;padding:14px;background:white;border-radius:10px;border:2px solid #e0e7ff;">
+                    <span class="field-type-badge badge-independent">Independent</span>
+                    <p style="margin-top:8px;font-size:13px;color:#555;">One output column. Each row is analysed separately for this field.</p>
+                </div>
+                <div style="flex:1;min-width:220px;padding:14px;background:white;border-radius:10px;border:2px solid #fef3c7;">
+                    <span class="field-type-badge badge-dependent">Dependent Group</span>
+                    <p style="margin-top:8px;font-size:13px;color:#555;">Multiple output columns share one prompt. Later columns can reference earlier ones.</p>
+                </div>
+            </div>
+
+            <div id="fieldsContainer"></div>
+
+            <div class="btn-group" style="margin-bottom:20px;">
+                <button class="btn btn-sm btn-primary" id="addIndependentBtn" disabled onclick="addField('independent')">&#x2795; Independent Field</button>
+                <button class="btn btn-sm btn-primary" id="addDependentBtn"   disabled onclick="addField('dependent')">&#x2795; Dependent Group</button>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" id="refineBtn"     disabled onclick="refinePrompts()">&#x2728; Refine Prompts with AI</button>
+                <button class="btn btn-success" id="saveConfigBtn" disabled onclick="saveConfig()">&#x1F4BE; Save Config to Backend</button>
+            </div>
+
+            <div id="refiningStatus" class="hidden" style="margin-top:14px;">
+                <div class="alert alert-info"><div class="spinner"></div> Refining prompts with AI...</div>
+            </div>
+            <div id="configStatus" class="hidden" style="margin-top:14px;">
+                <div class="alert alert-success">&#x2705; Config saved — ready to process.</div>
+            </div>
+        </div>
+
+        <!-- ── Step 5: Run ───────────────────────────────────────────────── -->
+        <div class="section">
+            <h2><span class="section-number">5</span> Run & Export</h2>
+            <div class="two-col" style="margin-bottom:20px;">
+                <div class="form-group">
+                    <label>Max rows <span style="font-weight:400;color:#999">(0 = all)</span></label>
+                    <input type="number" id="maxRows" value="0" min="0" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Max concurrent API calls</label>
+                    <input type="number" id="maxConcurrent" value="10" min="1" max="50" disabled>
+                </div>
+            </div>
+            <button class="btn btn-success" id="processBtn" disabled onclick="runPipeline()">&#x26A1; Run Pipeline</button>
+
+            <div id="processingStatus" class="hidden" style="margin-top:14px;">
+                <div class="alert alert-info"><div class="spinner"></div> Processing rows — this may take a while...</div>
+            </div>
+
+            <div id="resultsSection" class="hidden">
+                <h3 style="margin:20px 0 4px;">Results Preview <span style="font-weight:400;font-size:14px;color:#888">(first 10 rows)</span></h3>
+                <div class="table-wrapper"><table id="resultsTable"></table></div>
+                <div class="btn-group" style="margin-top:18px;">
+                    <button class="btn btn-success" onclick="exportFile('csv')">&#x1F4E5; Download CSV</button>
+                    <button class="btn btn-success" onclick="exportFile('xlsx')">&#x1F4CA; Download XLSX</button>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /main-content -->
+</div><!-- /container -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const state = {
+    backendUrl: '',
+    columns: [],
+    parsedData: null,
+    workbook: null,
+};
+
+function base() { return state.backendUrl.replace(/\/$/, ''); }
+
+// ── Toast alerts ─────────────────────────────────────────────────────────────
+function toast(type, msg) {
+    const cls = type === 'success' ? 'alert-success' : type === 'warning' ? 'alert-warning' : 'alert-error';
+    const el = document.createElement('div');
+    el.className = `alert ${cls}`;
+    el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;max-width:420px;box-shadow:0 4px 20px rgba(0,0,0,.15);';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+}
+
+// ── Data source tabs ─────────────────────────────────────────────────────────
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['file','gsheet'][i] === name));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+// ── Step 1: Health ───────────────────────────────────────────────────────────
+async function checkHealth() {
+    state.backendUrl = document.getElementById('backendUrl').value.trim();
+    if (!state.backendUrl) return toast('error', 'Enter a URL first.');
+    try {
+        const r = await fetch(base() + '/api/health');
+        const d = await r.json();
+        if (d.status === 'ok') {
+            document.getElementById('connectionStatus').textContent = 'Connected to Colab backend ✓';
+            document.getElementById('connectionBanner').classList.add('connected');
+            document.getElementById('statusIndicator').classList.add('connected');
+            document.getElementById('uploadBtn').disabled = false;
+            toast('success', 'Connected!');
+        }
+    } catch { toast('error', 'Could not reach the backend. Is Colab running?'); }
+}
+
+// ── Step 2a: File upload ──────────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.csv')) {
+        Papa.parse(file, {
+            header: true, skipEmptyLines: true,
+            complete: res => {
+                setParsedData(res.meta.fields, res.data);
+                document.getElementById('sheetSelectGroup').classList.add('hidden');
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        });
+    } else {
+        const reader = new FileReader();
+        reader.onload = e => {
+            state.workbook = XLSX.read(e.target.result, { type: 'binary' });
+            const names = state.workbook.SheetNames;
+            const sel = document.getElementById('sheetSelect');
+            sel.innerHTML = names.map(n => `<option>${n}</option>`).join('');
+            document.getElementById('sheetSelectGroup').classList.remove('hidden');
+            loadXLSXSheet(names[0]);
+            sel.onchange = () => loadXLSXSheet(sel.value);
+        };
+        reader.readAsBinaryString(file);
+    }
+});
+
+function loadXLSXSheet(name) {
+    const rows = XLSX.utils.sheet_to_json(state.workbook.Sheets[name]);
+    if (!rows.length) return;
+    setParsedData(Object.keys(rows[0]), rows);
+    document.getElementById('uploadBtn').disabled = false;
+}
+
+function setParsedData(columns, rows) {
+    state.columns = columns;
+    state.parsedData = { columns, rows };
+}
+
+async function uploadParsedData() {
+    if (!state.parsedData) return toast('error', 'Parse a file first.');
+    document.getElementById('uploadBtn').disabled = true;
+    try {
+        const rowArrays = state.parsedData.rows.map(r => state.parsedData.columns.map(c => r[c] ?? ''));
+        const r = await fetch(base() + '/api/upload-data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columns: state.parsedData.columns, rows: rowArrays }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Upload failed');
+        showDataPreview(d.columns, d.row_count, d.preview);
+        unlockStep3();
+        toast('success', `Loaded ${d.row_count} rows.`);
+    } catch (e) { toast('error', 'Upload failed: ' + e.message); }
+    document.getElementById('uploadBtn').disabled = false;
+}
+
+// ── Step 2b: Google Sheet ─────────────────────────────────────────────────────
+async function fetchGSheet() {
+    const url = document.getElementById('gsheetUrl').value.trim();
+    const tab = document.getElementById('gsheetTab').value.trim();
+    if (!url) return toast('error', 'Enter a Google Sheet URL.');
+
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/);
+    if (!match) return toast('error', 'Could not extract spreadsheet ID from URL.');
+    const id = match[1];
+
+    // Build CSV export URL
+    const csvUrl = tab
+        ? `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`
+        : `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`;
+
+    try {
+        const res = await fetch(csvUrl);
+        if (!res.ok) throw new Error('Could not fetch sheet. Make sure it is published to the web.');
+        const text = await res.text();
+        Papa.parse(text, {
+            header: true, skipEmptyLines: true,
+            complete: async parsed => {
+                setParsedData(parsed.meta.fields, parsed.data);
+                // auto-upload to backend
+                const rowArrays = parsed.data.map(r => parsed.meta.fields.map(c => r[c] ?? ''));
+                const r2 = await fetch(base() + '/api/upload-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ columns: parsed.meta.fields, rows: rowArrays }),
+                });
+                const d = await r2.json();
+                if (!r2.ok) throw new Error(d.detail || 'Upload failed');
+                showDataPreview(d.columns, d.row_count, d.preview);
+                unlockStep3();
+                toast('success', `Loaded ${d.row_count} rows from Google Sheet.`);
+            }
+        });
+    } catch (e) { toast('error', e.message); }
+}
+
+function showDataPreview(columns, rowCount, preview) {
+    document.getElementById('rowCount').textContent = rowCount;
+    document.getElementById('colCount').textContent = columns.length;
+    renderTable('previewTable', columns, preview);
+    document.getElementById('dataPreview').classList.remove('hidden');
+}
+
+function unlockStep3() {
+    document.getElementById('apiKey').disabled = false;
+    document.getElementById('setKeyBtn').disabled = false;
+}
+
+// ── Step 3: API Key ───────────────────────────────────────────────────────────
+async function setApiKey() {
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) return toast('error', 'Enter your OpenAI API key.');
+    try {
+        const r = await fetch(base() + '/api/set-api-key', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: key }),
+        });
+        if (!r.ok) throw new Error('Failed');
+        document.getElementById('apiKeyStatus').classList.remove('hidden');
+        document.getElementById('basePrompt').disabled = false;
+        document.getElementById('addIndependentBtn').disabled = false;
+        document.getElementById('addDependentBtn').disabled = false;
+        toast('success', 'API key set.');
+    } catch (e) { toast('error', 'Failed: ' + e.message); }
+}
+
+// ── Step 4: Fields ────────────────────────────────────────────────────────────
+let fieldCount = 0;
+
+function addField(type) {
+    fieldCount++;
+    const id = fieldCount;
+    const isDependent = type === 'dependent';
+    const div = document.createElement('div');
+    div.className = 'field-card';
+    div.id = 'field-' + id;
+
+    const colCheckboxes = state.columns.map(c =>
+        `<label><input type="checkbox" value="${c}"> ${c}</label>`
+    ).join('');
+
+    div.innerHTML = `
+        <div class="field-card-header">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span class="field-type-badge ${isDependent ? 'badge-dependent' : 'badge-independent'}">
+                    ${isDependent ? 'Dependent Group' : 'Independent'}
+                </span>
+                <span style="font-weight:600;color:#495057;">Field ${id}</span>
+            </div>
+            <button class="btn-remove" onclick="removeField(${id})">Remove</button>
+        </div>
+
+        ${isDependent ? `
+        <div class="form-group">
+            <label>Output column names <span style="font-weight:400;color:#999">(comma-separated)</span></label>
+            <input type="text" id="fname-${id}" placeholder="e.g. category, confidence, evidence">
+            <small>Each name becomes a separate output column, all filled by the same prompt.</small>
+        </div>
+        ` : `
+        <div class="form-group">
+            <label>Output column name</label>
+            <input type="text" id="fname-${id}" placeholder="e.g. sentiment">
+        </div>
+        `}
+
+        <div class="form-group">
+            <label>Prompt</label>
+            <textarea id="fprompt-${id}" placeholder="${isDependent
+                ? 'Return a JSON object with keys matching the column names above. E.g. { "category": "...", "confidence": "..." }'
+                : 'E.g. Classify the sentiment as positive, negative, or neutral'
+            }"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Reads from <span style="font-weight:400;color:#999">(select source columns)</span></label>
+            <div class="multi-select" id="freads-${id}">
+                ${colCheckboxes || '<em style="color:#aaa;font-size:13px;">Load data first to see columns</em>'}
+            </div>
+        </div>
+    `;
+
+    document.getElementById('fieldsContainer').appendChild(div);
+    updateFieldBtns();
+}
+
+function removeField(id) {
+    document.getElementById('field-' + id)?.remove();
+    updateFieldBtns();
+}
+
+function updateFieldBtns() {
+    const has = document.querySelectorAll('.field-card').length > 0;
+    document.getElementById('refineBtn').disabled = !has;
+    document.getElementById('saveConfigBtn').disabled = !has;
+}
+
+function collectFields() {
+    return Array.from(document.querySelectorAll('.field-card')).flatMap(card => {
+        const id = card.id.replace('field-', '');
+        const namesRaw = document.getElementById('fname-' + id)?.value.trim() || '';
+        const prompt   = document.getElementById('fprompt-' + id)?.value.trim() || '';
+        const reads_from = Array.from(card.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+        const isDependent = card.querySelector('.badge-dependent') !== null;
+
+        if (!namesRaw || !prompt) return [];
+
+        if (isDependent) {
+            // expand comma-separated names into individual fields sharing the same prompt
+            return namesRaw.split(',').map(n => n.trim()).filter(Boolean).map(name => ({ name, prompt, reads_from }));
+        }
+        return [{ name: namesRaw, prompt, reads_from }];
+    });
+}
+
+// ── Refine with AI ────────────────────────────────────────────────────────────
+async function refinePrompts() {
+    const fields = collectFields();
+    if (!fields.length) return toast('error', 'Add at least one complete field first.');
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) return toast('error', 'Set your API key first.');
+
+    document.getElementById('refineBtn').disabled = true;
+    document.getElementById('refiningStatus').classList.remove('hidden');
+
+    try {
+        const system = `You are an expert prompt engineer for analytics workflows. Given field definitions (name, prompt, reads_from), refine each field's prompt to be precise, testable, and cell-friendly. Keep instructions short and imperative. Respect the ambiguity token 'unsure'. Return JSON: { "refined_base_prompt": str, "fields": [{ "name": str, "refined_prompt": str }] }`;
+
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini', temperature: 0,
+                response_format: { type: 'json_object' },
+                messages: [
+                    { role: 'system', content: system },
+                    { role: 'user', content: JSON.stringify({ base_prompt: document.getElementById('basePrompt').value, fields }) },
+                ],
+            }),
+        });
+        if (!r.ok) throw new Error('OpenAI call failed');
+        const refined = JSON.parse((await r.json()).choices[0].message.content);
+
+        if (refined.refined_base_prompt)
+            document.getElementById('basePrompt').value = refined.refined_base_prompt;
+
+        refined.fields?.forEach(f => {
+            document.querySelectorAll('.field-card').forEach(card => {
+                const id = card.id.replace('field-', '');
+                // match by any name in the card (handles dependent groups)
+                const namesRaw = document.getElementById('fname-' + id)?.value || '';
+                const names = namesRaw.split(',').map(n => n.trim());
+                if (names.includes(f.name))
+                    document.getElementById('fprompt-' + id).value = f.refined_prompt;
+            });
+        });
+        toast('success', 'Prompts refined! Review and save to backend.');
+    } catch (e) { toast('error', 'Refinement failed: ' + e.message); }
+
+    document.getElementById('refiningStatus').classList.add('hidden');
+    document.getElementById('refineBtn').disabled = false;
+}
+
+// ── Save config ───────────────────────────────────────────────────────────────
+async function saveConfig() {
+    const fields = collectFields();
+    if (!fields.length) return toast('error', 'Add at least one valid field.');
+    try {
+        const r = await fetch(base() + '/api/upload-config', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base_prompt: document.getElementById('basePrompt').value, fields }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Failed');
+        document.getElementById('configStatus').classList.remove('hidden');
+        document.getElementById('maxRows').disabled = false;
+        document.getElementById('maxConcurrent').disabled = false;
+        document.getElementById('processBtn').disabled = false;
+        toast('success', `Config saved — ${d.field_count} field(s).`);
+    } catch (e) { toast('error', 'Failed: ' + e.message); }
+}
+
+// ── Step 5: Run ───────────────────────────────────────────────────────────────
+async function runPipeline() {
+    document.getElementById('processBtn').disabled = true;
+    document.getElementById('processingStatus').classList.remove('hidden');
+    document.getElementById('resultsSection').classList.add('hidden');
+    try {
+        const r = await fetch(base() + '/api/process', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                max_rows: parseInt(document.getElementById('maxRows').value) || 0,
+                max_concurrent: parseInt(document.getElementById('maxConcurrent').value) || 10,
+            }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Processing failed');
+        renderTable('resultsTable', d.columns, d.preview);
+        document.getElementById('resultsSection').classList.remove('hidden');
+        toast('success', `Done — ${d.row_count} rows processed.`);
+    } catch (e) { toast('error', 'Failed: ' + e.message); }
+    document.getElementById('processingStatus').classList.add('hidden');
+    document.getElementById('processBtn').disabled = false;
+}
+
+function exportFile(fmt) { window.open(base() + '/api/export/' + fmt, '_blank'); }
+
+// ── Table renderer ────────────────────────────────────────────────────────────
+function renderTable(id, cols, rows) {
+    document.getElementById(id).innerHTML =
+        `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>` +
+        `<tbody>${rows.map(r => `<tr>${cols.map(c => `<td title="${r[c]??''}">${r[c]??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+</script>
+</body>
+</html>
