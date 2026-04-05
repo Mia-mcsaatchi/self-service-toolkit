@@ -54,17 +54,21 @@ BASE_PROMPT = (
 
 class Condition(BaseModel):
     column: str
-    operator: str = "="       # "=" or "!="
-    values: List[str] = []    # match if row value is in this list
+    operator: str = "is"      # "is" or "is not"
+    values: List[str] = []
+
+class Branch(BaseModel):
+    conditions: List[Condition] = []  # ALL must match (AND logic)
     prompt: str = ""
 
 class Field(BaseModel):
     name: str
-    prompt: str               # default prompt (used when no condition matches)
+    prompt: str = ""          # default prompt (mode=default) or fallback
     reads_from: List[str] = []
-    field_type: str = "independent"   # "independent" (dependent coming in phase 2)
+    field_type: str = "independent"
     is_cluster: bool = False
-    conditions: List[Condition] = []  # empty = run on all rows with default prompt
+    mode: str = "default"     # "default" or "conditional"
+    branches: List[Branch] = []
 
 class FieldConfig(BaseModel):
     base_prompt: str = BASE_PROMPT
@@ -243,41 +247,46 @@ async def _call_openai(
 # Condition resolver
 # ---------------------------------------------------------------------------
 
+def _match_condition(cond: Dict, row: pd.Series) -> bool:
+    """Check if a single condition matches the row value."""
+    col = cond.get("column", "")
+    op = cond.get("operator", "is")
+    values = [str(v).strip() for v in (cond.get("values") or [])]
+    if col not in row.index or not values:
+        return False
+    row_val = str(row[col]).strip() if not pd.isna(row.get(col)) else ""
+    return (row_val in values) if op in ("=", "is") else (row_val not in values)
+
+
 def _resolve_prompt(field: Dict[str, Any], row: pd.Series) -> Optional[str]:
     """
-    Return the prompt to use for this field+row, or None if all conditions
-    are defined but none match (caller writes 'n/a' and skips the API call).
+    Return the prompt to use for this field+row.
 
-    Rules:
-    - No conditions defined → always use field default prompt
-    - Conditions defined → evaluate top-to-bottom, first match wins
-      - operator "=" : row value must be in condition values list
-      - operator "!=" : row value must NOT be in condition values list
-    - No match → return None  (caller writes 'n/a')
+    mode=default  → always use field.prompt (runs on every row)
+    mode=conditional → evaluate branches top-to-bottom
+      Each branch: ALL conditions must match (AND logic)
+      First fully-matching branch wins → use branch.prompt
+      No branch matches → return None (caller writes 'n/a')
     """
-    conditions = field.get("conditions") or []
+    mode = field.get("mode", "default")
     default_prompt = (field.get("prompt") or "").strip()
 
-    if not conditions:
+    if mode == "default":
         return default_prompt if default_prompt else None
 
-    for cond in conditions:
-        col = cond.get("column", "")
-        op = cond.get("operator", "=")
-        values = [str(v).strip() for v in (cond.get("values") or [])]
-        cond_prompt = (cond.get("prompt") or "").strip()
-
-        if col not in row.index:
+    # conditional mode
+    branches = field.get("branches") or []
+    for branch in branches:
+        conditions = branch.get("conditions") or []
+        branch_prompt = (branch.get("prompt") or "").strip()
+        if not branch_prompt:
             continue
+        # All conditions must match (AND)
+        if all(_match_condition(c, row) for c in conditions):
+            return branch_prompt
 
-        row_val = str(row[col]).strip() if not pd.isna(row.get(col)) else ""
-
-        matched = (row_val in values) if op == "=" else (row_val not in values)
-        if matched and cond_prompt:
-            return cond_prompt
-
-    # No condition matched — fall back to default prompt if set
-    return default_prompt if default_prompt else None
+    # No branch matched → n/a
+    return None
 
 
 # ---------------------------------------------------------------------------

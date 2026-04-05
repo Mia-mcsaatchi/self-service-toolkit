@@ -168,6 +168,21 @@
 
     /* ── Value checklist ── */
     .cond-val-list { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px; background: var(--surface2); border: 1px solid var(--amber-border); border-radius: 6px; min-height: 36px; margin-bottom: 6px; }
+    /* ── Tooltip ── */
+    .has-tooltip { position: relative; }
+    .has-tooltip .tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; font-size: 11px; font-family: 'DM Mono', monospace; padding: 6px 10px; border-radius: 6px; white-space: nowrap; z-index: 100; pointer-events: none; max-width: 280px; white-space: normal; text-align: center; line-height: 1.4; }
+    .has-tooltip:hover .tooltip { display: block; }
+    .mode-toggle { display: flex; gap: 6px; margin-bottom: 14px; }
+    .mode-btn { flex: 1; padding: 9px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); font-size: 12px; font-weight: 500; color: var(--ink-muted); cursor: pointer; text-align: center; transition: all 0.15s; font-family: 'Geist', sans-serif; }
+    .mode-btn:hover:not(.mode-disabled) { border-color: var(--border-strong); color: var(--ink); }
+    .mode-btn.mode-active-blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+    .mode-btn.mode-active-amber { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
+    .mode-btn.mode-disabled { opacity: 0.4; cursor: not-allowed; }
+    /* ── AND condition row within branch ── */
+    .and-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .and-label { font-size: 10px; font-weight: 600; color: var(--ink-dim); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; width: 24px; flex-shrink: 0; }
+    .cond-add-and { background: none; border: none; color: var(--ink-muted); font-size: 11px; cursor: pointer; font-family: 'DM Mono', monospace; padding: 4px 0; text-decoration: underline; margin-top: 4px; display: block; }
+    .cond-add-and:hover { color: var(--amber); }
   </style>
 </head>
 <body>
@@ -482,12 +497,15 @@ function addField() {
   const div = document.createElement('div');
   div.className = 'field-card';
   div.id = 'field-' + id;
-  div.innerHTML = buildFieldCard(id, 'single', false);
+  div.innerHTML = buildFieldCard(id, 'single', 'default');
   document.getElementById('fieldsContainer').appendChild(div);
 }
 
-function buildFieldCard(id, outputType, hasConditions) {
+function buildFieldCard(id, outputType, mode) {
   const isCluster = outputType === 'cluster';
+  const isConditional = mode === 'conditional';
+  const catCols = getCategoricalColumns();
+  const hasCat = Object.values(catCols).some(v => v !== null);
 
   const colOptions = state.columns.map(c =>
     `<label class="col-option"><input type="checkbox" value="${c}"> ${c}</label>`
@@ -498,19 +516,22 @@ function buildFieldCard(id, outputType, hasConditions) {
     .map(p => `<option value="${p.value}">${p.label}</option>`)
     .join('');
 
+  const condDisabledAttr = hasCat ? '' : 'mode-disabled';
+  const condTooltip = hasCat ? '' : `<span class="tooltip">Conditional branching requires at least one categorical column (2–30 unique values). None found in your data.</span>`;
+
   return `
     <div class="field-card-header">
       <div class="badge-row">
         <span class="badge badge-indep">Independent</span>
         <span class="badge-arrow">›</span>
         <span class="badge ${isCluster ? 'badge-cluster' : 'badge-single'}">${isCluster ? 'Cluster' : 'Single'}</span>
-        ${hasConditions ? `<span class="badge-arrow">›</span><span class="badge badge-cond">Conditional</span>` : ''}
+        ${isConditional ? `<span class="badge-arrow">›</span><span class="badge badge-cond">Conditional</span>` : ''}
       </div>
       <button class="btn btn-danger" onclick="removeField(${id})">Remove</button>
     </div>
 
     <div class="seg-label">Output type</div>
-    <div class="seg-group" id="seg-output-${id}">
+    <div class="seg-group">
       <div class="seg-btn ${!isCluster ? 'seg-active-dark' : ''}" onclick="setOutputType(${id}, 'single')">Single</div>
       <div class="seg-btn ${isCluster ? 'seg-active-purple' : ''}" onclick="setOutputType(${id}, 'cluster')">Cluster</div>
     </div>
@@ -522,16 +543,29 @@ function buildFieldCard(id, outputType, hasConditions) {
       ${isCluster ? `<small>Each name becomes a separate column — all filled by one prompt call.</small>` : ''}
     </div>
 
-    <label class="cond-toggle" id="cond-toggle-${id}" onclick="toggleConditions(${id})">
-      <input type="checkbox" id="cond-check-${id}" ${hasConditions ? 'checked' : ''} onclick="event.stopPropagation(); toggleConditions(${id})">
-      <span class="cond-toggle-label">Conditional branching</span>
-      <span class="cond-toggle-hint">run different prompts per value</span>
-    </label>
+    <div class="seg-label">Prompt mode</div>
+    <div class="mode-toggle">
+      <div class="mode-btn ${!isConditional ? 'mode-active-blue' : ''}" onclick="setMode(${id}, 'default')">Default — runs on all rows</div>
+      <div class="mode-btn ${isConditional ? 'mode-active-amber' : ''} ${condDisabledAttr} has-tooltip" onclick="${hasCat ? `setMode(${id}, 'conditional')` : ''}">
+        Conditional — branch by value
+        ${condTooltip}
+      </div>
+    </div>
 
-    <div id="cond-block-${id}" class="cond-block ${hasConditions ? '' : 'hidden'}">
+    <div id="default-block-${id}" class="${isConditional ? 'hidden' : ''}">
+      <div class="form-group">
+        <label>Prompt <span style="font-weight:400;opacity:0.6">(runs on every row)</span></label>
+        <select class="prompt-bank-select" onchange="applyPromptBank(${id}, this)">${bankOptions}</select>
+        <textarea id="fprompt-${id}" placeholder="${isCluster
+          ? 'Return a JSON object with keys matching the column names above.'
+          : 'e.g. Classify the sentiment as positive, negative, or neutral.'}"></textarea>
+      </div>
+    </div>
+
+    <div id="cond-block-${id}" class="cond-block ${isConditional ? '' : 'hidden'}">
       <div id="branches-${id}"></div>
       <button class="cond-add-btn" onclick="addBranch(${id})">+ Add branch</button>
-      <div class="cond-no-match">No match → writes "n/a" &nbsp;|&nbsp; evaluated top to bottom</div>
+      <div class="cond-no-match">No branch matches → writes "n/a" &nbsp;|&nbsp; evaluated top to bottom</div>
     </div>
 
     <div class="divider"></div>
@@ -541,14 +575,6 @@ function buildFieldCard(id, outputType, hasConditions) {
       <div class="multi-select" id="freads-${id}">
         ${colOptions || '<span style="color:var(--ink-muted);font-size:11px;padding:4px 6px;display:block;font-family:\'DM Mono\',monospace;">Load data first</span>'}
       </div>
-    </div>
-
-    <div class="form-group">
-      <label>Default prompt <span style="font-weight:400;opacity:0.6">(used when no condition matches, or if no branches defined)</span></label>
-      <select class="prompt-bank-select" onchange="applyPromptBank(${id}, this)">${bankOptions}</select>
-      <textarea id="fprompt-${id}" placeholder="${isCluster
-        ? 'Return a JSON object with keys matching the column names above.'
-        : 'e.g. Classify the sentiment as positive, negative, or neutral.'}"></textarea>
     </div>`;
 }
 
@@ -557,32 +583,40 @@ function removeField(id) { document.getElementById('field-' + id)?.remove(); }
 function setOutputType(id, type) {
   const card = document.getElementById('field-' + id);
   if (!card) return;
-  const hasConditions = document.getElementById('cond-check-' + id)?.checked || false;
-  card.innerHTML = buildFieldCard(id, type, hasConditions);
-  // branches reset on type change
+  const currentMode = card.dataset.mode || 'default';
+  card.innerHTML = buildFieldCard(id, type, currentMode);
+  card.dataset.mode = currentMode;
 }
 
-function toggleConditions(id) {
-  const checkbox = document.getElementById('cond-check-' + id);
-  // checkbox state toggled by click, just sync the block visibility
-  setTimeout(() => {
-    const checked = checkbox.checked;
-    const block = document.getElementById('cond-block-' + id);
-    block.classList.toggle('hidden', !checked);
-    // update header badge
-    const badgeRow = document.querySelector(`#field-${id} .badge-row`);
-    const existingCondBadge = badgeRow.querySelector('.badge-cond');
-    if (checked && !existingCondBadge) {
-      badgeRow.insertAdjacentHTML('beforeend', `<span class="badge-arrow">›</span><span class="badge badge-cond">Conditional</span>`);
-    } else if (!checked && existingCondBadge) {
-      badgeRow.querySelector('.badge-arrow:last-child')?.remove();
-      existingCondBadge.remove();
-    }
-    // add first branch automatically
-    if (checked && document.getElementById('branches-' + id).children.length === 0) {
-      addBranch(id);
-    }
-  }, 0);
+function setMode(id, mode) {
+  const card = document.getElementById('field-' + id);
+  if (!card) return;
+  const catCols = getCategoricalColumns();
+  const hasCat = Object.values(catCols).some(v => v !== null);
+  if (mode === 'conditional' && !hasCat) return; // guard: greyed out
+  card.dataset.mode = mode;
+  const isConditional = mode === 'conditional';
+  document.getElementById('default-block-' + id)?.classList.toggle('hidden', isConditional);
+  document.getElementById('cond-block-' + id)?.classList.toggle('hidden', !isConditional);
+  // Update mode buttons
+  card.querySelectorAll('.mode-btn').forEach((btn, i) => {
+    btn.classList.remove('mode-active-blue', 'mode-active-amber');
+    if (i === 0 && !isConditional) btn.classList.add('mode-active-blue');
+    if (i === 1 && isConditional) btn.classList.add('mode-active-amber');
+  });
+  // Update badge
+  const badgeRow = card.querySelector('.badge-row');
+  const existingCondBadge = badgeRow?.querySelector('.badge-cond');
+  if (isConditional && !existingCondBadge) {
+    badgeRow.insertAdjacentHTML('beforeend', `<span class="badge-arrow">›</span><span class="badge badge-cond">Conditional</span>`);
+  } else if (!isConditional && existingCondBadge) {
+    badgeRow.querySelector('.badge-arrow:last-child')?.remove();
+    existingCondBadge.remove();
+  }
+  // Auto-add first branch
+  if (isConditional && document.getElementById('branches-' + id)?.children.length === 0) {
+    addBranch(id);
+  }
 }
 
 // ── Branch builder ────────────────────────────────────────────────────────────
@@ -625,36 +659,64 @@ function addBranch(fieldId) {
   branch.className = 'cond-branch';
   branch.id = `branch-${bid}`;
   branch.innerHTML = `
-    <div class="cond-row">
-      <span class="cond-if">if</span>
-      <select class="cond-col-select" id="bcol-${bid}" onchange="onBranchColChange('${bid}')">${colOptions}</select>
-      <select class="cond-op-select" id="bop-${bid}">
-        <option value="is">is</option>
-        <option value="is not">is not</option>
-      </select>
-      <button class="cond-branch-remove" onclick="removeBranch('${bid}')">×</button>
+    <div class="field-card-header" style="margin-bottom:10px;">
+      <span style="font-size:11px;color:var(--amber);font-family:'DM Mono',monospace;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;">Branch</span>
+      <button class="cond-branch-remove" onclick="removeBranch('${bid}')">× Remove branch</button>
     </div>
-    <div>
-      <label style="font-size:10px;color:var(--amber);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;display:block;">Values <span style="font-weight:400;opacity:0.7">(tick all that apply — OR logic)</span></label>
-      <div id="val-list-${bid}" class="cond-val-list"></div>
-    </div>
-    <textarea class="cond-prompt-area" id="bprompt-${bid}" placeholder="Prompt for this branch…"></textarea>`;
+    <div id="cond-rows-${bid}"></div>
+    <button class="cond-add-and" onclick="addConditionRow('${bid}')">+ Add AND condition</button>
+    <div class="form-group" style="margin-top:10px;">
+      <label style="font-size:10px;color:var(--amber);">Prompt for this branch</label>
+      <textarea class="cond-prompt-area" id="bprompt-${bid}" placeholder="Prompt to run when all conditions above match…"></textarea>
+    </div>`;
 
   document.getElementById('branches-' + fieldId).appendChild(branch);
+  // Add first condition row automatically
+  addConditionRow(bid, firstCat, catCols);
+}
 
-  // Set first categorical column and populate values
+let condRowCount = 0;
+function addConditionRow(bid, preselectedCol, catColsArg) {
+  condRowCount++;
+  const rid = `${bid}-r${condRowCount}`;
+  const catCols = catColsArg || getCategoricalColumns();
+  const colOptions = buildColOptions(catCols);
+  const firstCat = preselectedCol || state.columns.find(c => catCols[c]);
+
+  const row = document.createElement('div');
+  row.className = 'and-row';
+  row.id = `crow-${rid}`;
+  const isFirst = document.getElementById('cond-rows-' + bid).children.length === 0;
+  row.innerHTML = `
+    <span class="and-label">${isFirst ? 'if' : 'and'}</span>
+    <select class="cond-col-select" id="rcol-${rid}" onchange="onCondRowColChange('${rid}')" style="flex:1;">${colOptions}</select>
+    <select class="cond-op-select" id="rop-${rid}">
+      <option value="is">is</option>
+      <option value="is not">is not</option>
+    </select>
+    ${isFirst ? '' : `<button class="cond-branch-remove" onclick="document.getElementById('crow-${rid}').remove()">×</button>`}`;
+
+  document.getElementById('cond-rows-' + bid).appendChild(row);
+
+  // Value checklist below the row
+  const valDiv = document.createElement('div');
+  valDiv.style.cssText = 'margin: 4px 0 10px 32px;';
+  valDiv.innerHTML = `<div id="val-list-${rid}" class="cond-val-list"></div>`;
+  row.insertAdjacentElement('afterend', valDiv);
+
   if (firstCat) {
-    document.getElementById('bcol-' + bid).value = firstCat;
-    populateValueList(bid, catCols[firstCat]);
+    document.getElementById('rcol-' + rid).value = firstCat;
+    populateValueList(rid, catCols[firstCat]);
   }
 }
 
-function onBranchColChange(bid) {
-  const col = document.getElementById('bcol-' + bid)?.value;
+function onCondRowColChange(rid) {
+  const col = document.getElementById('rcol-' + rid)?.value;
   const catCols = getCategoricalColumns();
-  const values = catCols[col];
-  populateValueList(bid, values || []);
+  populateValueList(rid, catCols[col] || []);
 }
+
+
 
 function populateValueList(bid, values) {
   const container = document.getElementById('val-list-' + bid);
@@ -674,10 +736,21 @@ function removeBranch(bid) {
   document.getElementById('branch-' + bid)?.remove();
 }
 
-function getBranchValues(bid) {
-  const container = document.getElementById('val-list-' + bid);
-  if (!container) return [];
-  return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+function getBranchConditions(bid) {
+  // Collect all condition rows within a branch → returns List[Condition]
+  const rows = document.getElementById('cond-rows-' + bid)?.querySelectorAll('.and-row') || [];
+  const conditions = [];
+  rows.forEach(row => {
+    const rid = row.id.replace('crow-', '');
+    const column = document.getElementById('rcol-' + rid)?.value || '';
+    const operator = document.getElementById('rop-' + rid)?.value || 'is';
+    const valList = document.getElementById('val-list-' + rid);
+    const values = valList
+      ? Array.from(valList.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value)
+      : [];
+    if (column && values.length > 0) conditions.push({ column, operator, values });
+  });
+  return conditions;
 }
 
 // ── Prompt bank apply ─────────────────────────────────────────────────────────
@@ -703,18 +776,20 @@ function collectFields() {
 
     if (!namesRaw) return [];
 
-    // Collect branches
-    const conditions = [];
-    if (hasConditions) {
-      const branches = document.getElementById('branches-' + id)?.querySelectorAll('.cond-branch') || [];
-      branches.forEach(branch => {
+    const fieldCard = document.getElementById('field-' + id);
+    const mode = fieldCard?.dataset.mode || 'default';
+    const isConditional = mode === 'conditional';
+
+    // Collect branches (conditional mode)
+    const branches = [];
+    if (isConditional) {
+      const branchEls = document.getElementById('branches-' + id)?.querySelectorAll('.cond-branch') || [];
+      branchEls.forEach(branch => {
         const bid = branch.id.replace('branch-', '');
-        const column = document.getElementById('bcol-' + bid)?.value || '';
-        const operator = document.getElementById('bop-' + bid)?.value || '=';
-        const values = getBranchValues(bid);
+        const conditions = getBranchConditions(bid);
         const prompt = document.getElementById('bprompt-' + bid)?.value.trim() || '';
-        if (column && values.length > 0 && prompt) {
-          conditions.push({ column, operator, values, prompt });
+        if (conditions.length > 0 && prompt) {
+          branches.push({ conditions, prompt });
         }
       });
     }
@@ -726,11 +801,12 @@ function collectFields() {
 
     return names.map(name => ({
       name,
-      prompt: defaultPrompt,
+      prompt: isConditional ? '' : defaultPrompt,
       reads_from,
       field_type: 'independent',
       is_cluster: isCluster,
-      conditions,
+      mode,
+      branches,
     }));
   });
 }
