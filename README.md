@@ -1,87 +1,100 @@
 # Self-Service Toolkit
 
-A no-code data enrichment pipeline that processes tabular data through OpenAI's GPT-4o-mini and exports structured results. Built for Jupyter / Google Colab.
+AI-powered data enrichment pipeline. Upload a spreadsheet, define output fields with plain-English prompts, and the tool processes each row through GPT-4o-mini — returning structured results you can download as CSV or Excel.
 
-## What It Does
+Built by M&C Saatchi Data Team.
 
-Upload a spreadsheet, define output fields with plain-English prompts, and the tool sends each row through GPT-4o-mini — returning structured data you can export back to CSV, Excel, or Google Sheets.
+---
 
-## Blocks
+## Live URLs
 
-| Block | Name | Purpose |
-|-------|------|---------|
-| **Block 1** | Data Loader | Upload CSV/XLSX or connect a Google Sheet |
-| **Block K** | API Key Setup | Set your OpenAI API key for the session |
-| **Block P** | Base Prompt | System-level instruction used by all LLM calls |
-| **Block C** | Field Config Builder | Define output columns and their prompts interactively |
-| **Block R** | Run & Export | Process all rows asynchronously and export results |
-| **Block S** | Web Server *(optional)* | Expose the pipeline as a public API via Flask + Cloudflare tunnel |
+| | URL |
+|---|---|
+| **Frontend** | https://mia-mcsaatchi.github.io/self-service-toolkit |
+| **Backend API** | https://self-service-toolkit-production.up.railway.app |
+| **API docs** | https://self-service-toolkit-production.up.railway.app/docs |
+| **User guide** | https://mia-mcsaatchi.github.io/self-service-toolkit/docs/ |
 
-## Getting Started
+---
 
-### 1. Open in Google Colab
-
-Upload `Packed_Updated (2).ipynb` to [Google Colab](https://colab.research.google.com).
-
-### 2. Load your data (Block 1)
-
-- **Upload a file:** drag in a `.csv` or `.xlsx`
-- **Google Sheet:** paste the sheet URL, click "Fetch tabs", select a worksheet, then click "Load table"
-
-### 3. Set your OpenAI API key (Block K)
-
-Paste your key (starts with `sk-`) and click **Set key**. The key is stored in the session only.
-
-### 4. Configure output fields (Block C)
-
-1. Click **Refresh from DataFrame** to load your column names
-2. Click **+ Add field** for each new column you want
-3. For each field, fill in:
-   - **Field name** — the output column name
-   - **Reads from** — which source columns to include as context
-   - **Prompt** — plain-English instruction (e.g. *"Classify the sentiment as positive, negative, or neutral"*)
-4. Use **Dependent group** mode when multiple output fields share one prompt
-
-### 5. Run and export (Block R)
-
-Configure the output settings at the top of Block R:
-
-```python
-OUTPUT_TARGET  = "local"          # "local" or "gsheet"
-OUTPUT_PATH    = "/content/output.csv"
-OUTPUT_FORMAT  = "csv"            # "csv" or "xlsx"
-MAX_ROWS       = 0                # 0 = all rows
-MAX_CONCURRENT = 10               # parallel API calls
-```
-
-Then run the block. Results are saved to the path you specified.
-
-## Optional: Web API (Block S)
-
-Block S starts a Flask server and creates a public Cloudflare tunnel URL. Use this to connect the pipeline to a frontend without exposing your Colab session directly.
-
-Endpoints:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Check server status |
-| POST | `/api/upload-data` | Send parsed row data |
-| POST | `/api/upload-config` | Send field config JSON |
-| POST | `/api/set-api-key` | Set OpenAI key remotely |
-| POST | `/api/process` | Run the pipeline |
-| GET | `/api/export-csv` | Download results as CSV |
-| GET | `/api/export-xlsx` | Download results as XLSX |
-
-## Requirements
-
-The notebook auto-detects the environment. Install missing packages in Colab with:
+## Architecture
 
 ```
-!pip install ipywidgets gspread google-auth aiohttp nest-asyncio tqdm openpyxl flask flask-cors
+index.html          → GitHub Pages (static frontend)
+     ↓ fetch()
+main.py (FastAPI)   → Railway (persistent backend)
+     ↓ POST
+OpenAI API          → GPT-4o-mini
 ```
 
-## Notes
+The frontend parses files in-browser and sends data to the backend. The backend holds state in memory for the session, calls OpenAI, and returns results. The OpenAI API key lives on the server — never sent by the client.
 
-- Each row makes one API call returning all fields as a JSON object
-- If a field is ambiguous or missing data, the model returns `"unsure"`
-- Google Sheets support requires Colab OAuth — click "Authorize Google" when prompted
+---
+
+## Repo structure
+
+```
+self-service-toolkit/
+├── index.html          # Frontend — single-page app
+├── main.py             # Backend — FastAPI application
+├── requirements.txt    # Python dependencies (pinned)
+├── Dockerfile          # Used by Railway to build and run
+├── .env.example        # Environment variable template
+├── .gitignore          # Excludes .env and __pycache__
+├── docs/
+│   └── index.html      # User guide (served by GitHub Pages)
+├── README.md           # This file
+└── DEV_GUIDE.md        # Full technical reference for developers
+```
+
+---
+
+## Running locally
+
+**Requirements:** Python 3.11+, pip
+
+```bash
+# Clone
+git clone https://github.com/Mia-mcsaatchi/self-service-toolkit.git
+cd self-service-toolkit
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env with your OpenAI key
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY=sk-...
+
+# Start the server
+uvicorn main:app --reload
+```
+
+Backend runs at `http://127.0.0.1:8000`. Open `index.html` in a browser or visit `/docs` for the interactive API explorer.
+
+---
+
+## Deployment
+
+**Backend → Railway**
+- Connect repo at railway.app → auto-detects Dockerfile → deploys on every push to `main`
+- Set `OPENAI_API_KEY` in Railway → Variables tab
+
+**Frontend → GitHub Pages**
+- Repo Settings → Pages → Source: main branch, / (root)
+- Auto-deploys on every push to `main`
+
+---
+
+## Development workflow
+
+```bash
+# Make changes locally
+# Test at http://127.0.0.1:8000
+
+git add .
+git commit -m "description of change"
+git push
+# Railway and Pages update automatically (~2 min)
+```
+
+See `DEV_GUIDE.md` for full technical reference.

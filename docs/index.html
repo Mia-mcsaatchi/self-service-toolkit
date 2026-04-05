@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Guide — Self-Service Toolkit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f5f3ee; --surface: #fff; --surface2: #f9f8f5;
+      --border: #e2dfd8; --border-strong: #ccc9c0;
+      --ink: #1a1a1a; --ink-muted: #6b6760; --ink-dim: #b5b2aa;
+      --green: #1a7a4a; --green-bg: #edf7f1; --green-border: #b8e0cb;
+      --amber: #92400e; --amber-bg: #fffbeb; --amber-border: #fde68a;
+      --blue: #1e40af; --blue-bg: #eff6ff; --blue-border: #bfdbfe;
+      --purple: #7e22ce; --purple-bg: #faf5ff; --purple-border: #e9d5ff;
+      --red: #b91c1c; --red-border: #fecaca;
+      --radius: 8px; --radius-lg: 12px;
+    }
+    body { font-family: 'Geist', sans-serif; background: var(--bg); color: var(--ink); line-height: 1.7; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 10; }
+    .topbar-brand { display: flex; align-items: center; gap: 12px; }
+    .topbar-logo { width: 28px; height: 28px; background: var(--ink); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+    .topbar-logo svg { width: 14px; height: 14px; }
+    .topbar-name { font-size: 14px; font-weight: 600; }
+    .topbar-tag { font-size: 11px; color: var(--ink-muted); font-family: 'DM Mono', monospace; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+    .btn-launch { background: var(--ink); color: #fff; padding: 7px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; text-decoration: none; }
+    .btn-launch:hover { background: #333; }
+    .page { max-width: 760px; margin: 0 auto; padding: 56px 24px 100px; }
+    .toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 48px; }
+    .toc-title { font-size: 11px; font-weight: 500; color: var(--ink-muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .toc a { display: block; font-size: 13px; color: var(--blue); text-decoration: none; padding: 3px 0; }
+    .toc a:hover { text-decoration: underline; }
+    .toc-sub { padding-left: 16px; }
+    h1 { font-family: 'Instrument Serif', serif; font-size: 40px; font-weight: 400; line-height: 1.15; letter-spacing: -0.5px; margin-bottom: 12px; }
+    h1 em { font-style: italic; color: var(--ink-muted); }
+    .lead { font-size: 16px; color: var(--ink-muted); margin-bottom: 48px; }
+    h2 { font-size: 22px; font-weight: 600; margin: 56px 0 16px; padding-top: 8px; border-top: 1px solid var(--border); }
+    h3 { font-size: 16px; font-weight: 600; margin: 32px 0 10px; }
+    p { margin-bottom: 16px; font-size: 15px; }
+    code { font-family: 'DM Mono', monospace; font-size: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+    .ui-frame { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin: 20px 0 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+    .ui-bar { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 6px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; } .dot-y { background: #ffbe2e; } .dot-g { background: #28c840; }
+    .ui-url { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-muted); margin-left: 8px; }
+    .ui-body { padding: 20px 24px; }
+    .s-step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 12px; overflow: hidden; }
+    .s-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .s-num { width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-family: 'DM Mono', monospace; flex-shrink: 0; }
+    .s-num.done { background: var(--green); }
+    .s-title { font-size: 13px; font-weight: 600; }
+    .s-sub { font-size: 11px; color: var(--ink-muted); font-family: 'DM Mono', monospace; margin-top: 1px; }
+    .s-body { padding: 16px 18px; }
+    .s-input { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--ink-muted); margin-bottom: 8px; }
+    .s-btn { display: inline-block; border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 500; }
+    .s-btn-dark { background: var(--ink); color: #fff; }
+    .s-btn-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--border); }
+    .s-stats { display: flex; gap: 10px; margin-bottom: 16px; }
+    .s-stat { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; text-align: center; }
+    .s-stat-val { font-size: 20px; font-weight: 600; font-family: 'DM Mono', monospace; }
+    .s-stat-label { font-size: 10px; color: var(--ink-muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+    .s-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'DM Mono', monospace; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .s-table th { background: var(--surface2); padding: 7px 12px; text-align: left; color: var(--ink-muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+    .s-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); }
+    .s-table tr:last-child td { border-bottom: none; }
+    .new-col { background: var(--green-bg); color: var(--green); }
+    .na-col { color: var(--ink-dim); font-style: italic; }
+    .s-field { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .s-field-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .badge-row { display: flex; align-items: center; gap: 5px; }
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 500; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
+    .b-blue { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue-border); }
+    .b-purple { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
+    .b-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+    .b-green { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+    .b-gray { background: var(--surface2); color: var(--ink-muted); border: 1px solid var(--border); }
+    .b-arrow { color: var(--ink-dim); font-size: 10px; }
+    .s-label { font-size: 10px; font-weight: 500; color: var(--ink-muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; display: block; }
+    .mode-row { display: flex; gap: 6px; margin-bottom: 12px; }
+    .mode-btn { flex: 1; padding: 7px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; text-align: center; border: 1px solid var(--border); color: var(--ink-muted); background: var(--surface); }
+    .mode-btn.m-blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+    .mode-btn.m-amber { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
+    .s-textarea { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--ink); width: 100%; min-height: 52px; margin-bottom: 8px; }
+    .s-bank { background: var(--blue-bg); border: 1px solid var(--blue-border); border-radius: 6px; padding: 8px 10px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--blue); margin-bottom: 6px; width: 100%; }
+    .cond-wrap { background: var(--amber-bg); border: 1px solid var(--amber-border); border-radius: var(--radius); padding: 12px; }
+    .branch { background: var(--surface); border: 1px solid var(--amber-border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; }
+    .branch-title { font-size: 10px; font-weight: 600; color: var(--amber); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+    .cond-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; font-family: 'DM Mono', monospace; flex-wrap: wrap; }
+    .cond-if { color: var(--amber); font-weight: 600; min-width: 24px; }
+    .cond-and { color: var(--ink-dim); min-width: 24px; }
+    .cond-col { background: var(--surface2); border: 1px solid var(--amber-border); border-radius: 4px; padding: 3px 8px; }
+    .cond-op { background: var(--surface2); border: 1px solid var(--amber-border); border-radius: 4px; padding: 3px 8px; color: var(--ink-muted); }
+    .val { border-radius: 999px; padding: 2px 7px; font-size: 10px; font-family: 'DM Mono', monospace; }
+    .val-off { background: var(--amber-bg); border: 1px solid var(--amber-border); color: var(--amber); }
+    .val-on { background: var(--amber); color: #fff; }
+    .no-match { font-size: 11px; color: var(--ink-muted); font-family: 'DM Mono', monospace; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--amber-border); }
+    .callout { border-left: 3px solid; padding: 14px 16px; border-radius: 0 var(--radius) var(--radius) 0; margin: 20px 0; font-size: 14px; }
+    .c-tip { border-color: var(--green); background: var(--green-bg); color: var(--green); }
+    .c-note { border-color: var(--blue); background: var(--blue-bg); color: var(--blue); }
+    .c-warn { border-color: var(--amber); background: var(--amber-bg); color: var(--amber); }
+    .callout strong { font-weight: 600; display: block; margin-bottom: 4px; }
+    .page-footer { text-align: center; margin-top: 64px; font-size: 11px; color: var(--ink-dim); font-family: 'DM Mono', monospace; }
+    .page-footer a { color: inherit; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="white"/><rect x="8" y="1" width="5" height="5" rx="1" fill="white" opacity="0.5"/><rect x="1" y="8" width="5" height="5" rx="1" fill="white" opacity="0.5"/><rect x="8" y="8" width="5" height="5" rx="1" fill="white" opacity="0.25"/></svg>
+    </div>
+    <span class="topbar-name">Self-Service Toolkit</span>
+    <span class="topbar-tag">User Guide</span>
+  </div>
+  <a class="btn-launch" href="../">Open toolkit</a>
+</div>
+
+<div class="page">
+
+  <h1>How to use the<br><em>Self-Service Toolkit</em></h1>
+  <p class="lead">A step-by-step guide to uploading data, configuring AI fields, and downloading enriched results. No coding required.</p>
+
+  <div class="toc">
+    <div class="toc-title">Contents</div>
+    <a href="#overview">What this tool does</a>
+    <a href="#step1">Step 1 — Load your data</a>
+    <a href="#step2">Step 2 — Configure fields</a>
+    <div class="toc-sub">
+      <a href="#field-types">Single vs Cluster</a>
+      <a href="#prompt-mode">Default vs Conditional</a>
+      <a href="#prompt-bank">Using the prompt bank</a>
+    </div>
+    <a href="#step3">Step 3 — Run and export</a>
+    <a href="#use-cases">Use cases and examples</a>
+    <div class="toc-sub">
+      <a href="#uc1">Sentiment tagging with justification</a>
+      <a href="#uc2">Translate then tag</a>
+      <a href="#uc3">Conditional follow-up by value</a>
+      <a href="#uc4">AND conditions across columns</a>
+    </div>
+    <a href="#tips">Tips and edge cases</a>
+  </div>
+
+  <h2 id="overview">What this tool does</h2>
+  <p>The Self-Service Toolkit takes any spreadsheet — a Brandwatch export, a social listening dataset, a survey response file — and adds new AI-generated columns to it. You define what each new column should contain in plain English, and the tool runs every row through GPT-4o-mini to fill it in.</p>
+  <p>The result is your original data with extra columns appended, ready to download as CSV or Excel.</p>
+  <div class="callout c-note"><strong>No setup needed</strong>The tool runs in your browser and connects to a shared backend. You do not need an OpenAI account, API key, or any software installed.</div>
+
+  <h2 id="step1">Step 1 — Load your data</h2>
+  <p>Upload a CSV or Excel file (.xlsx) using the file picker. For Excel files with multiple tabs, select the worksheet you want. Then click Upload to backend.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div><span class="ui-url">mia-mcsaatchi.github.io/self-service-toolkit</span></div>
+    <div class="ui-body">
+      <div class="s-step">
+        <div class="s-head"><div class="s-num done">1</div><div><div class="s-title">Load your data</div><div class="s-sub">CSV, Excel, or Google Sheet</div></div></div>
+        <div class="s-body">
+          <span class="s-label">File</span>
+          <div class="s-input">brandwatch_export_march_2026.xlsx</div>
+          <span class="s-label" style="margin-top:10px;">Worksheet</span>
+          <div class="s-input">Raw Data</div>
+          <div class="s-btn s-btn-dark" style="margin-top:8px;">Upload to backend</div>
+          <div style="margin-top:18px;">
+            <div class="s-stats">
+              <div class="s-stat"><div class="s-stat-val">367</div><div class="s-stat-label">Rows</div></div>
+              <div class="s-stat"><div class="s-stat-val">42</div><div class="s-stat-label">Columns</div></div>
+            </div>
+            <table class="s-table">
+              <thead><tr><th>post_text</th><th>overall_sentiment</th><th>language</th><th>country_code</th></tr></thead>
+              <tbody>
+                <tr><td>Hallo, ich liebe meinen neuen Explorer…</td><td>Positive</td><td>de</td><td>DE</td></tr>
+                <tr><td>Absolutely gutted I ordered before…</td><td>Negative</td><td>en</td><td>GB</td></tr>
+                <tr><td>BlueCruise fonctionne tres bien sur…</td><td>Positive</td><td>fr</td><td>FR</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p>Once uploaded, a row count, column count, and data preview appear. Step 2 unlocks automatically.</p>
+  <div class="callout c-tip"><strong>Google Sheet option</strong>Switch to the Google Sheet tab and paste a Sheet URL. The sheet must be published to the web first: File > Share > Publish to web > Publish. Leave the tab name blank for the first sheet, or type the exact tab name.</div>
+
+  <h2 id="step2">Step 2 — Configure fields</h2>
+  <p>Click + Add field to create a field card. Each card produces one or more new output columns.</p>
+
+  <h3 id="field-types">Single vs Cluster</h3>
+  <p><strong>Single</strong> produces one output column. Use for one piece of information per row (sentiment, language, a yes/no flag).</p>
+  <p><strong>Cluster</strong> produces multiple output columns from a single AI call — faster and cheaper. Use when several outputs are related and can be described together (topic + sentiment + key quote).</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="s-field">
+        <div class="s-field-head">
+          <div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-purple">Cluster</span></div>
+        </div>
+        <span class="s-label">Output type</span>
+        <div class="mode-row" style="margin-bottom:12px;">
+          <div class="mode-btn" style="flex:none;padding:7px 18px;">Single</div>
+          <div class="mode-btn m-blue" style="flex:none;padding:7px 18px;background:var(--purple-bg);border-color:var(--purple-border);color:var(--purple);">Cluster</div>
+        </div>
+        <span class="s-label">Output column names (comma-separated)</span>
+        <div class="s-input">topic, sentiment, key_quote</div>
+        <div style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;margin-top:4px;">Each name becomes a separate column, all filled by one AI call.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3 id="prompt-mode">Default vs Conditional</h3>
+  <p><strong>Default mode</strong> runs the same prompt on every row. Use for universal tasks like translation or sentiment classification.</p>
+  <p><strong>Conditional mode</strong> runs different prompts depending on the value of another column. Use when the question you want to ask depends on what is already in the data.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="s-field">
+        <div class="s-field-head">
+          <div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-gray">Single</span><span class="b-arrow">›</span><span class="badge b-amber">Conditional</span></div>
+        </div>
+        <span class="s-label">Output column name</span>
+        <div class="s-input">follow_up</div>
+        <span class="s-label" style="margin-top:10px;">Prompt mode</span>
+        <div class="mode-row" style="margin-bottom:14px;">
+          <div class="mode-btn" style="font-size:11px;">Default — runs on all rows</div>
+          <div class="mode-btn m-amber" style="font-size:11px;">Conditional — branch by value</div>
+        </div>
+        <div class="cond-wrap">
+          <div class="branch">
+            <div class="branch-title">Branch 1</div>
+            <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Negative</span><span class="val val-off">Positive</span><span class="val val-off">Neutral</span></div>
+            <div class="s-textarea">What is the main complaint? Under 15 words.</div>
+          </div>
+          <div class="branch">
+            <div class="branch-title">Branch 2</div>
+            <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Positive</span></div>
+            <div class="s-textarea">What is the main positive signal? Under 15 words.</div>
+          </div>
+          <div class="no-match">No branch matches → writes "n/a"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout c-note"><strong>How branches work</strong>Branches are evaluated top to bottom. The first branch where all conditions match is the one that runs. If nothing matches, the field writes "n/a" for that row and no AI call is made.</div>
+  <div class="callout c-warn"><strong>Conditional requires categorical columns</strong>The condition column must have 30 or fewer unique values. Free-text columns like post_text are greyed out in the dropdown. Columns like overall_sentiment, language, or country_code work well.</div>
+
+  <h3 id="prompt-bank">Using the prompt bank</h3>
+  <p>Every field has a prompt bank dropdown above the prompt textarea. Selecting a preset fills in a ready-to-use prompt. You can edit it freely after selecting.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body" style="max-width:480px;">
+      <span class="s-label">Prompt</span>
+      <div class="s-bank">Full tagging: topic + sentiment + quote (cluster)</div>
+      <div class="s-textarea">Analyse the text and return a JSON object with:
+- "topic": primary topic in 2-4 words
+- "sentiment": one of positive, negative, neutral, mixed
+- "key_quote": most important phrase, under 12 words</div>
+    </div>
+  </div>
+
+  <p>Available presets: sentiment classification, topic categorisation, full tagging cluster, language detection, translation to English, purchase intent, complaint detection, brand mention tagging, one-sentence summary, urgency scoring, competitor comparison signal.</p>
+
+  <h2 id="step3">Step 3 — Run and export</h2>
+  <p>Once fields are saved, Step 3 unlocks. Set Max rows to a small number (e.g. 10) for a test run before processing the full dataset. Leave at 0 to process everything. Click Run pipeline and wait for the progress bar to complete.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <p style="font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;margin-bottom:10px;">Preview — first 10 rows</p>
+      <div style="overflow:auto;">
+        <table class="s-table">
+          <thead><tr><th>post_text</th><th>overall_sentiment</th><th class="new-col">sentiment_ai</th><th class="new-col">follow_up</th></tr></thead>
+          <tbody>
+            <tr><td>Absolutely gutted I ordered before…</td><td>Negative</td><td class="new-col">negative</td><td class="new-col">Early order regret over LFP upgrade</td></tr>
+            <tr><td>BlueCruise fonctionne tres bien…</td><td>Positive</td><td class="new-col">positive</td><td class="new-col">Hands-free driving experience praised</td></tr>
+            <tr><td>Hat jemand Erfahrungen mit…</td><td>Neutral</td><td class="new-col">neutral</td><td class="na-col">n/a</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <span class="s-btn s-btn-dark">Download CSV</span>
+        <span class="s-btn s-btn-ghost">Download XLSX</span>
+      </div>
+    </div>
+  </div>
+
+  <p>Your original columns are preserved and new AI-generated columns are appended at the end.</p>
+
+  <hr class="divider">
+
+  <h2 id="use-cases">Use cases and examples</h2>
+
+  <h3 id="uc1">Sentiment tagging with justification</h3>
+  <p>Use a Cluster field to get sentiment and a justification in one AI call.</p>
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="s-field">
+        <div class="s-field-head"><div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-purple">Cluster</span></div></div>
+        <span class="s-label">Output column names</span>
+        <div class="s-input">sentiment_ai, justification</div>
+        <span class="s-label" style="margin-top:8px;">Prompt — Default, all rows</span>
+        <div class="s-textarea">Analyse the sentiment and return a JSON object with:
+- "sentiment_ai": one of positive, negative, neutral, mixed
+- "justification": one sentence, under 20 words</div>
+        <span class="s-label" style="margin-top:8px;">Reads from</span>
+        <div style="display:flex;gap:6px;"><span class="badge b-green">post_text</span></div>
+      </div>
+    </div>
+  </div>
+  <p>Result: two new columns <code>sentiment_ai</code> and <code>justification</code> for every row, filled in one AI call per row.</p>
+
+  <h3 id="uc2">Translate first, then tag</h3>
+  <p>Use two separate fields: one translates all posts, the second runs sentiment. Add both fields, making sure the second one includes the translated_text column in Reads from.</p>
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="s-field" style="margin-bottom:10px;">
+        <div class="s-field-head"><div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-gray">Single</span></div></div>
+        <span class="s-label">Output</span><div class="s-input">translated_text</div>
+        <span class="s-label" style="margin-top:8px;">Prompt — Default</span>
+        <div class="s-textarea">Translate to English. If already English, return unchanged.</div>
+        <span class="s-label" style="margin-top:8px;">Reads from</span>
+        <div style="display:flex;gap:6px;"><span class="badge b-green">post_text</span></div>
+      </div>
+      <div class="s-field">
+        <div class="s-field-head"><div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-gray">Single</span></div></div>
+        <span class="s-label">Output</span><div class="s-input">sentiment_ai</div>
+        <span class="s-label" style="margin-top:8px;">Prompt — Default</span>
+        <div class="s-textarea">Classify sentiment: positive, negative, neutral, or mixed.</div>
+        <span class="s-label" style="margin-top:8px;">Reads from</span>
+        <div style="display:flex;gap:6px;"><span class="badge b-green">post_text</span><span class="badge b-green">translated_text</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="callout c-tip"><strong>One field per concern</strong>If you need to do something to all rows AND something conditional, use two separate fields. The first handles the universal task (translate all). The second handles the conditional task (extract complaint only when negative).</div>
+
+  <h3 id="uc3">Conditional follow-up by sentiment value</h3>
+  <p>Ask a different follow-up question depending on whether the post is positive or negative. Neutral rows write "n/a" automatically — no AI call, no cost.</p>
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="s-field">
+        <div class="s-field-head"><div class="badge-row"><span class="badge b-blue">Independent</span><span class="b-arrow">›</span><span class="badge b-gray">Single</span><span class="b-arrow">›</span><span class="badge b-amber">Conditional</span></div></div>
+        <span class="s-label">Output</span><div class="s-input">follow_up</div>
+        <div class="cond-wrap" style="margin-top:10px;">
+          <div class="branch">
+            <div class="branch-title">Branch 1</div>
+            <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Negative</span></div>
+            <div class="s-textarea">What is the main complaint? Under 15 words.</div>
+          </div>
+          <div class="branch">
+            <div class="branch-title">Branch 2</div>
+            <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Positive</span></div>
+            <div class="s-textarea">What is the main positive signal? Under 15 words.</div>
+          </div>
+          <div class="no-match">No branch matches → writes "n/a"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="overflow:auto;margin:12px 0 24px;">
+    <table class="s-table">
+      <thead><tr><th>post_text</th><th>overall_sentiment</th><th class="new-col">follow_up</th></tr></thead>
+      <tbody>
+        <tr><td>Absolutely gutted I ordered before…</td><td>Negative</td><td class="new-col">Early order regret over LFP upgrade</td></tr>
+        <tr><td>BlueCruise works brilliantly on…</td><td>Positive</td><td class="new-col">Hands-free highway driving praised</td></tr>
+        <tr><td>Hat jemand Erfahrungen mit…</td><td>Neutral</td><td class="na-col">n/a</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="uc4">AND conditions — multiple columns must match</h3>
+  <p>Add multiple conditions within one branch using + Add AND condition. All must match for the branch to fire. Here, Branch 1 only fires for negative posts in German, French, or Spanish — other negative posts fall through to Branch 2.</p>
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div class="cond-wrap">
+        <div class="branch">
+          <div class="branch-title">Branch 1 — two AND conditions</div>
+          <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Negative</span></div>
+          <div class="cond-row"><span class="cond-and">and</span><span class="cond-col">language</span><span class="cond-op">is</span><span class="val val-on">de</span><span class="val val-on">fr</span><span class="val val-on">es</span></div>
+          <div class="s-textarea">Translate this negative comment to English, then summarise the complaint in one sentence.</div>
+        </div>
+        <div class="branch">
+          <div class="branch-title">Branch 2 — fallback for other negative</div>
+          <div class="cond-row"><span class="cond-if">if</span><span class="cond-col">overall_sentiment</span><span class="cond-op">is</span><span class="val val-on">Negative</span></div>
+          <div class="s-textarea">What is the main complaint? Under 15 words.</div>
+        </div>
+        <div class="no-match">No match → n/a</div>
+      </div>
+    </div>
+  </div>
+  <div class="callout c-note"><strong>AND within a branch, OR across branches</strong>All conditions in one branch must match (AND). Branches are tried in order and the first full match wins (OR). Multiple values within one condition mean any of those values match (OR within values).</div>
+
+  <hr class="divider">
+
+  <h2 id="tips">Tips and edge cases</h2>
+
+  <h3>Test with a small batch first</h3>
+  <p>Set Max rows to 10 before running the full dataset. Check the output looks right, then set it back to 0. This saves time and API cost if the prompt needs tweaking.</p>
+
+  <h3>The "unsure" token</h3>
+  <p>If the AI cannot determine an answer — because the text is too short, ambiguous, or off-topic — it writes <code>unsure</code>. This is intentional. Filter for <code>unsure</code> in your exported file to find rows that need manual review.</p>
+
+  <h3>The "n/a" value in conditional fields</h3>
+  <p><code>n/a</code> means no branch matched — no AI call was made. This is different from <code>unsure</code>, which means an AI call was made but the model could not determine the answer. Both are safe to filter out in your analysis.</p>
+
+  <h3>Choose reads from carefully</h3>
+  <p>Only tick columns that are genuinely useful context for the prompt. Including too many columns, especially long free-text fields, inflates the prompt and can confuse the model. One or two source columns is usually enough.</p>
+
+  <h3>Cluster fields and JSON format</h3>
+  <p>When using Cluster mode, the AI returns all output columns as a JSON object. Make sure your prompt explicitly lists the JSON keys and what each should contain. The prompt bank cluster presets do this correctly — use them as a starting point.</p>
+
+  <h3>Conditional mode is greyed out</h3>
+  <p>If the Conditional button appears greyed out with a tooltip, it means your data has no categorical columns — all columns have more than 30 unique values. Check that columns like <code>overall_sentiment</code>, <code>language</code>, or <code>country_code</code> are included in your file.</p>
+
+  <div class="page-footer">M&C Saatchi — Data Team — Self-Service Toolkit &nbsp;·&nbsp; <a href="../">Open toolkit</a></div>
+
+</div>
+</body>
+</html>
