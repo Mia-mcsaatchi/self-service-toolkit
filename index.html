@@ -204,7 +204,7 @@
 <div class="wrap">
   <div class="page-title">
     <h1>AI-powered <em>data enrichment</em></h1>
-    <p>Upload a spreadsheet, define your fields, let GPT-4o-mini do the work.</p>
+    <p>Upload a spreadsheet, define your fields, let the model do the magic.</p>
   </div>
 
   <!-- Step 1 -->
@@ -667,6 +667,9 @@ function addBranch(fieldId) {
     <button class="cond-add-and" onclick="addConditionRow('${bid}')">+ Add AND condition</button>
     <div class="form-group" style="margin-top:10px;">
       <label style="font-size:10px;color:var(--amber);">Prompt for this branch</label>
+      <select class="prompt-bank-select" style="margin-bottom:6px;" onchange="applyBranchPromptBank('" + bid + "', this)">
+        ${PROMPT_BANK.map(p => `<option value="${p.value}">${p.label}</option>`).join('')}
+      </select>
       <textarea class="cond-prompt-area" id="bprompt-${bid}" placeholder="Prompt to run when all conditions above match…"></textarea>
     </div>`;
 
@@ -762,6 +765,13 @@ function applyPromptBank(id, selectEl) {
     const namesEl = document.getElementById('fname-' + id);
     if (namesEl) namesEl.value = entry.clusterCols;
   }
+}
+
+function applyBranchPromptBank(bid, selectEl) {
+  const entry = PROMPT_BANK.find(p => p.value === selectEl.value);
+  if (!entry || !entry.prompt) return;
+  const ta = document.getElementById('bprompt-' + bid);
+  if (ta) ta.value = entry.prompt;
 }
 
 // ── Collect fields for API ────────────────────────────────────────────────────
