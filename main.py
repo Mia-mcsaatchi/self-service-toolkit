@@ -52,10 +52,19 @@ BASE_PROMPT = (
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+class Condition(BaseModel):
+    column: str
+    operator: str = "="       # "=" or "!="
+    values: List[str] = []    # match if row value is in this list
+    prompt: str = ""
+
 class Field(BaseModel):
     name: str
-    prompt: str
+    prompt: str               # default prompt (used when no condition matches)
     reads_from: List[str] = []
+    field_type: str = "independent"   # "independent" (dependent coming in phase 2)
+    is_cluster: bool = False
+    conditions: List[Condition] = []  # empty = run on all rows with default prompt
 
 class FieldConfig(BaseModel):
     base_prompt: str = BASE_PROMPT
@@ -231,6 +240,47 @@ async def _call_openai(
 
 
 # ---------------------------------------------------------------------------
+# Condition resolver
+# ---------------------------------------------------------------------------
+
+def _resolve_prompt(field: Dict[str, Any], row: pd.Series) -> Optional[str]:
+    """
+    Return the prompt to use for this field+row, or None if all conditions
+    are defined but none match (caller writes 'n/a' and skips the API call).
+
+    Rules:
+    - No conditions defined → always use field default prompt
+    - Conditions defined → evaluate top-to-bottom, first match wins
+      - operator "=" : row value must be in condition values list
+      - operator "!=" : row value must NOT be in condition values list
+    - No match → return None  (caller writes 'n/a')
+    """
+    conditions = field.get("conditions") or []
+    default_prompt = (field.get("prompt") or "").strip()
+
+    if not conditions:
+        return default_prompt if default_prompt else None
+
+    for cond in conditions:
+        col = cond.get("column", "")
+        op = cond.get("operator", "=")
+        values = [str(v).strip() for v in (cond.get("values") or [])]
+        cond_prompt = (cond.get("prompt") or "").strip()
+
+        if col not in row.index:
+            continue
+
+        row_val = str(row[col]).strip() if not pd.isna(row.get(col)) else ""
+
+        matched = (row_val in values) if op == "=" else (row_val not in values)
+        if matched and cond_prompt:
+            return cond_prompt
+
+    # No condition matched — fall back to default prompt if set
+    return default_prompt if default_prompt else None
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -253,26 +303,70 @@ async def _run_pipeline(
             df[f["name"]] = ""
 
     n = min(max_rows, len(df)) if max_rows > 0 else len(df)
-    prompts = [
-        _build_row_prompt(config.get("base_prompt", BASE_PROMPT), fields, df.iloc[i])
-        for i in range(n)
-    ]
+    base_prompt = config.get("base_prompt", BASE_PROMPT)
 
     semaphore = asyncio.Semaphore(max_concurrent)
     timeout = aiohttp.ClientTimeout(total=45)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        tasks = [_call_openai(session, semaphore, p) for p in prompts]
-        answers = await asyncio.gather(*tasks)
 
-    field_names = [f["name"] for f in fields]
-    for i, raw in enumerate(answers):
-        try:
-            parsed = json.loads(raw)
-        except Exception:
-            parsed = {}
-        for fname in field_names:
-            df.iat[i, df.columns.get_loc(fname)] = parsed.get(fname, "unsure")
+        # Build one task per row — each task resolves conditions and calls API
+        async def process_row(i: int) -> Dict[str, str]:
+            row = df.iloc[i]
+            results: Dict[str, str] = {}
+
+            # Group fields that share the same resolved prompt and reads_from
+            # into a single API call (cluster behaviour).
+            # Fields with no matching condition write "n/a" immediately.
+            call_groups: Dict[str, Dict[str, Any]] = {}
+
+            for f in fields:
+                fname = (f.get("name") or "").strip()
+                if not fname:
+                    continue
+
+                resolved_prompt = _resolve_prompt(f, row)
+
+                if resolved_prompt is None:
+                    # No condition matched and no default → n/a, no API call
+                    results[fname] = "n/a"
+                    continue
+
+                # Group key: same prompt + same reads_from = same API call
+                group_key = resolved_prompt + "|" + ",".join(sorted(f.get("reads_from") or []))
+                if group_key not in call_groups:
+                    call_groups[group_key] = {
+                        "prompt": resolved_prompt,
+                        "reads_from": f.get("reads_from") or [],
+                        "field_names": [],
+                    }
+                call_groups[group_key]["field_names"].append(fname)
+
+            # Fire one API call per group
+            for group in call_groups.values():
+                group_fields = [
+                    {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
+                    for fn in group["field_names"]
+                ]
+                built_prompt = _build_row_prompt(base_prompt, group_fields, row)
+                raw = await _call_openai(session, semaphore, built_prompt)
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = {}
+                for fn in group["field_names"]:
+                    results[fn] = parsed.get(fn, "unsure")
+
+            return results
+
+        tasks = [process_row(i) for i in range(n)]
+        all_results = await asyncio.gather(*tasks)
+
+    # Write results back to dataframe
+    for i, row_results in enumerate(all_results):
+        for fname, value in row_results.items():
+            if fname in df.columns:
+                df.iat[i, df.columns.get_loc(fname)] = value
 
     return df
 
