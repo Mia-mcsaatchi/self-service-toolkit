@@ -28,137 +28,69 @@
       --amber: #92400e;
       --amber-bg: #fffbeb;
       --amber-border: #fde68a;
+      --blue: #1e40af;
+      --blue-bg: #eff6ff;
+      --blue-border: #bfdbfe;
       --radius: 8px;
       --radius-lg: 12px;
     }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Geist', sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; line-height: 1.5; }
 
-    .topbar {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 0 40px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 56px;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
+    /* ── Topbar ── */
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 10; }
     .topbar-brand { display: flex; align-items: center; gap: 12px; }
-    .topbar-logo {
-      width: 28px; height: 28px;
-      background: var(--ink);
-      border-radius: 6px;
-      display: flex; align-items: center; justify-content: center;
-    }
+    .topbar-logo { width: 28px; height: 28px; background: var(--ink); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
     .topbar-logo svg { width: 14px; height: 14px; }
     .topbar-name { font-size: 14px; font-weight: 600; color: var(--ink); letter-spacing: -0.2px; }
     .topbar-org { font-size: 12px; color: var(--ink-muted); font-family: 'DM Mono', monospace; }
-    .status-pill {
-      display: flex; align-items: center; gap: 7px;
-      padding: 6px 12px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      font-size: 11px;
-      font-family: 'DM Mono', monospace;
-      color: var(--ink-muted);
-      transition: all 0.3s;
-    }
+    .status-pill { display: flex; align-items: center; gap: 7px; padding: 6px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--ink-muted); transition: all 0.3s; }
     .status-pill.ok { background: var(--green-bg); border-color: var(--green-border); color: var(--green); }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-dim); flex-shrink: 0; transition: background 0.3s; }
     .status-pill.ok .status-dot { background: var(--green); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
+    /* ── Layout ── */
     .wrap { max-width: 800px; margin: 0 auto; padding: 40px 24px 80px; }
-
     .page-title { margin-bottom: 40px; }
-    .page-title h1 {
-      font-family: 'Instrument Serif', serif;
-      font-size: 36px; font-weight: 400;
-      color: var(--ink); line-height: 1.2; letter-spacing: -0.5px;
-    }
+    .page-title h1 { font-family: 'Instrument Serif', serif; font-size: 36px; font-weight: 400; color: var(--ink); line-height: 1.2; letter-spacing: -0.5px; }
     .page-title h1 em { font-style: italic; color: var(--ink-muted); }
     .page-title p { margin-top: 8px; font-size: 14px; color: var(--ink-muted); }
 
-    .step {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      margin-bottom: 16px;
-      overflow: hidden;
-      opacity: 0.45;
-      transition: opacity 0.3s, border-color 0.2s;
-      pointer-events: none;
-    }
+    /* ── Steps ── */
+    .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 16px; overflow: hidden; opacity: 0.45; transition: opacity 0.3s, border-color 0.2s; pointer-events: none; }
     .step.active { opacity: 1; pointer-events: all; }
     .step.active:focus-within { border-color: var(--border-strong); }
-
-    .step-header {
-      display: flex; align-items: center; gap: 14px;
-      padding: 18px 24px;
-      border-bottom: 1px solid var(--border);
-    }
-    .step-num {
-      width: 26px; height: 26px; border-radius: 50%;
-      border: 1.5px solid var(--border-strong);
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'DM Mono', monospace; font-size: 11px;
-      color: var(--ink-muted); flex-shrink: 0; transition: all 0.3s;
-    }
+    .step-header { display: flex; align-items: center; gap: 14px; padding: 18px 24px; border-bottom: 1px solid var(--border); }
+    .step-num { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink-muted); flex-shrink: 0; transition: all 0.3s; }
     .step.active .step-num { background: var(--ink); border-color: var(--ink); color: #fff; }
     .step.done .step-num { background: var(--green); border-color: var(--green); color: #fff; font-size: 13px; }
     .step-title { font-size: 14px; font-weight: 600; color: var(--ink); }
     .step-subtitle { font-size: 12px; color: var(--ink-muted); margin-top: 1px; font-family: 'DM Mono', monospace; }
     .step-body { padding: 24px; }
 
+    /* ── Tabs ── */
     .tabs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 20px; }
-    .tab {
-      padding: 7px 16px; border: none; background: transparent;
-      color: var(--ink-muted); font-family: 'Geist', sans-serif;
-      font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;
-      border-right: 1px solid var(--border);
-    }
+    .tab { padding: 7px 16px; border: none; background: transparent; color: var(--ink-muted); font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-right: 1px solid var(--border); }
     .tab:last-child { border-right: none; }
     .tab.active { background: var(--ink); color: #fff; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    /* ── Forms ── */
     .form-group { margin-bottom: 16px; }
-    label {
-      display: block; font-size: 11px; font-weight: 500;
-      color: var(--ink-muted); margin-bottom: 6px;
-      font-family: 'DM Mono', monospace;
-      text-transform: uppercase; letter-spacing: 0.06em;
-    }
+    label { display: block; font-size: 11px; font-weight: 500; color: var(--ink-muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
     input[type="text"], input[type="file"], input[type="number"], textarea, select {
-      width: 100%; padding: 9px 12px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); color: var(--ink);
-      font-size: 13px; font-family: 'Geist', sans-serif;
-      transition: border-color 0.15s; outline: none;
+      width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--ink); font-size: 13px; font-family: 'Geist', sans-serif; transition: border-color 0.15s; outline: none;
     }
-    input:focus, textarea:focus, select:focus {
-      border-color: var(--border-strong);
-      box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
-    }
+    input:focus, textarea:focus, select:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(0,0,0,0.04); }
     input[type="file"] { cursor: pointer; font-family: 'DM Mono', monospace; font-size: 12px; }
-    input[type="file"]::file-selector-button {
-      background: var(--surface2); border: 1px solid var(--border);
-      color: var(--ink); padding: 5px 12px; border-radius: 5px;
-      cursor: pointer; font-family: 'Geist', sans-serif;
-      font-size: 12px; font-weight: 500; margin-right: 10px;
-    }
+    input[type="file"]::file-selector-button { background: var(--surface2); border: 1px solid var(--border); color: var(--ink); padding: 5px 12px; border-radius: 5px; cursor: pointer; font-family: 'Geist', sans-serif; font-size: 12px; font-weight: 500; margin-right: 10px; }
     textarea { resize: vertical; min-height: 80px; }
     small { display: block; margin-top: 5px; font-size: 11px; color: var(--ink-muted); font-family: 'DM Mono', monospace; }
 
-    .btn {
-      display: inline-flex; align-items: center; gap: 7px;
-      padding: 9px 18px; border: none; border-radius: var(--radius);
-      font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 500;
-      cursor: pointer; transition: all 0.15s;
-    }
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border: none; border-radius: var(--radius); font-family: 'Geist', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary { background: var(--ink); color: #fff; }
     .btn-primary:hover:not(:disabled) { background: #333; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
@@ -171,11 +103,13 @@
     .btn-sm { padding: 6px 12px; font-size: 12px; }
     .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
 
+    /* ── Stats ── */
     .stats-row { display: flex; gap: 10px; margin-bottom: 18px; }
     .stat { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; text-align: center; }
     .stat-val { font-size: 22px; font-weight: 600; color: var(--ink); font-family: 'DM Mono', monospace; }
     .stat-label { font-size: 10px; color: var(--ink-muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 3px; }
 
+    /* ── Table ── */
     .table-wrap { border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; max-height: 300px; margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: 'DM Mono', monospace; }
     th { background: var(--surface2); padding: 9px 14px; text-align: left; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; position: sticky; top: 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -183,6 +117,7 @@
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: var(--surface2); }
 
+    /* ── Alerts ── */
     .alert { display: flex; align-items: flex-start; gap: 10px; padding: 11px 14px; border-radius: var(--radius); font-size: 12px; font-family: 'DM Mono', monospace; line-height: 1.5; }
     .alert-success { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
     .alert-error { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
@@ -195,11 +130,12 @@
     .progress-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; height: 4px; margin-top: 10px; overflow: hidden; }
     .progress-bar { height: 100%; background: var(--green); border-radius: 999px; width: 0%; transition: width 0.3s; }
 
+    /* ── Field cards ── */
     .field-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; }
     .field-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
     .badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 500; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
     .badge-independent { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .badge-dependent { background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; }
+    .badge-cluster { background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; }
 
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
@@ -214,6 +150,31 @@
 
     .divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
     .footer { text-align: center; margin-top: 56px; font-size: 11px; color: var(--ink-dim); font-family: 'DM Mono', monospace; }
+
+    /* ── Prompt bank ── */
+    .prompt-bank-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .prompt-bank-bar label {
+      margin: 0; white-space: nowrap; font-size: 11px;
+    }
+    .prompt-bank-select {
+      flex: 1;
+      padding: 7px 10px;
+      background: var(--blue-bg);
+      border: 1px solid var(--blue-border);
+      border-radius: var(--radius);
+      color: var(--blue);
+      font-size: 12px;
+      font-family: 'DM Mono', monospace;
+      cursor: pointer;
+    }
+    .prompt-bank-select:focus { outline: none; border-color: #93c5fd; }
+
+    /* ── GSheet tab fetch ── */
+    .gsheet-tabs-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 16px; }
+    .gsheet-tabs-row .form-group { flex: 1; margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -238,13 +199,13 @@
     <p>Upload a spreadsheet, define your fields, let GPT-4o-mini do the work.</p>
   </div>
 
-  <!-- Step 1 -->
+  <!-- ── Step 1: Load Data ── -->
   <div class="step active" id="step1">
     <div class="step-header">
       <div class="step-num">1</div>
       <div>
         <div class="step-title">Load your data</div>
-        <div class="step-subtitle">CSV or Excel — parsed in-browser, sent to backend</div>
+        <div class="step-subtitle">CSV, Excel, or Google Sheet</div>
       </div>
     </div>
     <div class="step-body">
@@ -252,6 +213,8 @@
         <button class="tab active" onclick="switchTab('file')">Upload file</button>
         <button class="tab" onclick="switchTab('gsheet')">Google Sheet</button>
       </div>
+
+      <!-- File tab -->
       <div class="tab-content active" id="tab-file">
         <div class="form-group">
           <label>File</label>
@@ -263,18 +226,29 @@
         </div>
         <button class="btn btn-primary" id="uploadBtn" disabled onclick="uploadParsedData()">Upload to backend</button>
       </div>
+
+      <!-- Google Sheet tab -->
       <div class="tab-content" id="tab-gsheet">
-        <div class="alert alert-info" style="margin-bottom:16px;">Your Google Sheet must be published to the web: File → Share → Publish to web</div>
+        <div class="alert alert-info" style="margin-bottom:16px;">
+          Sheet must be published to the web: File → Share → Publish to web → Publish
+        </div>
         <div class="form-group">
           <label>Sheet URL</label>
           <input type="text" id="gsheetUrl" placeholder="https://docs.google.com/spreadsheets/d/…">
         </div>
-        <div class="form-group">
-          <label>Tab name <span style="font-weight:400;opacity:0.6">(leave blank for first sheet)</span></label>
-          <input type="text" id="gsheetTab" placeholder="Sheet1">
+        <div class="gsheet-tabs-row">
+          <div class="form-group">
+            <label>Tab</label>
+            <select id="gsheetTabSelect" disabled>
+              <option value="">— fetch tabs first —</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="fetchGSheetTabs()" style="margin-bottom:0;flex-shrink:0;">Fetch tabs</button>
         </div>
-        <button class="btn btn-primary" onclick="fetchGSheet()">Fetch sheet</button>
+        <button class="btn btn-primary" id="gsheetLoadBtn" disabled onclick="loadGSheet()">Load sheet</button>
       </div>
+
+      <!-- Preview -->
       <div id="dataPreview" class="hidden" style="margin-top:24px;">
         <hr class="divider">
         <div class="stats-row">
@@ -286,7 +260,7 @@
     </div>
   </div>
 
-  <!-- Step 2 -->
+  <!-- ── Step 2: Configure Fields ── -->
   <div class="step" id="step2">
     <div class="step-header">
       <div class="step-num">2</div>
@@ -300,15 +274,25 @@
         <label>Base prompt</label>
         <textarea id="basePrompt" disabled>You are a top-performing data analyst/consultant. Write clear, concise outputs optimized for analytics: each field should be a single cell-friendly string. If the source text is ambiguous or lacks evidence, reply with the token 'unsure'. Do not add extra commentary or headings beyond the requested fields.</textarea>
       </div>
+
       <div class="type-cards">
-        <div class="type-card"><span class="badge badge-independent">Independent</span><p>One output column, analysed separately per row.</p></div>
-        <div class="type-card"><span class="badge badge-dependent">Dependent group</span><p>Multiple columns share one prompt, filled in order.</p></div>
+        <div class="type-card">
+          <span class="badge badge-independent">Independent</span>
+          <p>One output column per prompt. Each row is analysed separately.</p>
+        </div>
+        <div class="type-card">
+          <span class="badge badge-cluster">Cluster</span>
+          <p>Multiple output columns share one prompt and one API call.</p>
+        </div>
       </div>
+
       <div id="fieldsContainer"></div>
+
       <div class="btn-group" style="margin-bottom:18px;">
         <button class="btn btn-ghost btn-sm" id="addIndependentBtn" disabled onclick="addField('independent')">+ Independent field</button>
-        <button class="btn btn-ghost btn-sm" id="addDependentBtn" disabled onclick="addField('dependent')">+ Dependent group</button>
+        <button class="btn btn-ghost btn-sm" id="addClusterBtn" disabled onclick="addField('cluster')">+ Cluster</button>
       </div>
+
       <div class="btn-group">
         <button class="btn btn-primary" id="saveConfigBtn" disabled onclick="saveConfig()">Save config →</button>
       </div>
@@ -318,7 +302,7 @@
     </div>
   </div>
 
-  <!-- Step 3 -->
+  <!-- ── Step 3: Run ── -->
   <div class="step" id="step3">
     <div class="step-header">
       <div class="step-num">3</div>
@@ -359,10 +343,83 @@
 </div>
 
 <script>
+// ── Config ────────────────────────────────────────────────────────────────────
 const BACKEND = 'https://self-service-toolkit-production.up.railway.app';
+
+// ── Prompt bank ───────────────────────────────────────────────────────────────
+const PROMPT_BANK = [
+  { label: '— Select from prompt bank —', value: '', prompt: '' },
+  {
+    label: 'Sentiment classification',
+    value: 'sentiment',
+    prompt: 'Classify the sentiment of the text. Return exactly one of: positive, negative, neutral, mixed. Use "unsure" only if the text contains no opinion at all.'
+  },
+  {
+    label: 'Sentiment + justification (cluster)',
+    value: 'sentiment_cluster',
+    prompt: 'Analyse the sentiment of the text and return a JSON object with exactly these keys:\n- "sentiment": one of positive, negative, neutral, mixed\n- "justification": one sentence explaining why, under 20 words\nUse "unsure" for either field if the text lacks enough signal.',
+    isCluster: true,
+    clusterCols: 'sentiment, justification'
+  },
+  {
+    label: 'Topic categorisation',
+    value: 'topic',
+    prompt: 'Identify the primary topic of this text. Return a short label (2–4 words max). If multiple topics exist, return the dominant one. Use "unsure" if unclear.'
+  },
+  {
+    label: 'Full tagging: topic + sentiment + quote (cluster)',
+    value: 'full_tag',
+    prompt: 'Analyse the text and return a JSON object with exactly these keys:\n- "topic": primary topic in 2–4 words\n- "sentiment": one of positive, negative, neutral, mixed\n- "key_quote": the most important phrase from the text, under 12 words\nUse "unsure" for any field that lacks enough signal.',
+    isCluster: true,
+    clusterCols: 'topic, sentiment, key_quote'
+  },
+  {
+    label: 'Language detection',
+    value: 'language',
+    prompt: 'Detect the language of the text. Return the full language name in English (e.g. French, German, Dutch). Use "unsure" if the text is too short or mixed.'
+  },
+  {
+    label: 'Translation to English',
+    value: 'translation',
+    prompt: 'Translate the text to English. If the text is already in English, return it unchanged. Keep the meaning and tone as close to the original as possible. Do not add commentary.'
+  },
+  {
+    label: 'Purchase intent',
+    value: 'purchase_intent',
+    prompt: 'Assess whether the text signals an intent to buy or consider a product. Return exactly one of: high, medium, low, none. Use "unsure" only if there is no purchase-related signal whatsoever.'
+  },
+  {
+    label: 'Complaint detection',
+    value: 'complaint',
+    prompt: 'Determine whether the text contains a complaint or expression of dissatisfaction. Return exactly one of: yes, no, partial. Use "unsure" if the text is ambiguous.'
+  },
+  {
+    label: 'Brand mention tagging',
+    value: 'brand',
+    prompt: 'Extract any brand or product names mentioned in the text. Return them as a comma-separated list (e.g. Ford, Tesla, Kia). If no brands are mentioned, return "none". Use "unsure" if unclear.'
+  },
+  {
+    label: 'One-sentence summary',
+    value: 'summary',
+    prompt: 'Summarise the text in a single sentence of no more than 20 words. Capture the main point only. Do not start with "The text" or "The author". Use "unsure" if the text has no clear meaning.'
+  },
+  {
+    label: 'Urgency scoring',
+    value: 'urgency',
+    prompt: 'Score the urgency or time-sensitivity expressed in the text. Return exactly one of: high, medium, low, none. Use "unsure" only if urgency cannot be assessed at all.'
+  },
+  {
+    label: 'Competitor comparison signal',
+    value: 'competitor',
+    prompt: 'Identify if the text compares a brand or product to a competitor. Return the competitor name if mentioned (e.g. Tesla, Volkswagen), "none" if no comparison is made, or "unsure" if unclear.'
+  },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
 const state = { columns: [], parsedData: null, workbook: null };
 function base() { return BACKEND; }
 
+// ── Health check ──────────────────────────────────────────────────────────────
 async function checkHealth() {
   try {
     const r = await fetch(base() + '/api/health');
@@ -375,12 +432,14 @@ async function checkHealth() {
 }
 checkHealth();
 
+// ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', ['file','gsheet'][i] === name));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
 }
 
+// ── File upload ───────────────────────────────────────────────────────────────
 document.getElementById('fileInput').addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -432,9 +491,53 @@ async function uploadParsedData() {
   document.getElementById('uploadBtn').disabled = false;
 }
 
-async function fetchGSheet() {
+// ── Google Sheet: fetch tabs automatically ────────────────────────────────────
+async function fetchGSheetTabs() {
   const url = document.getElementById('gsheetUrl').value.trim();
-  const tab = document.getElementById('gsheetTab').value.trim();
+  if (!url) return alert('Paste a Google Sheet URL first.');
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/);
+  if (!match) return alert('Could not extract spreadsheet ID from that URL.');
+  const id = match[1];
+
+  // Use the gviz endpoint which lists sheet metadata without auth
+  const metaUrl = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&tq=SELECT%201%20LIMIT%201`;
+  try {
+    const res = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json`);
+    const text = await res.text();
+
+    // Parse the sheet names from the HTML of the published spreadsheet
+    // Most reliable: fetch the export URL list by fetching sheet HTML
+    const htmlRes = await fetch(`https://docs.google.com/spreadsheets/d/${id}/htmlview`);
+    const html = await htmlRes.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const sheetLinks = doc.querySelectorAll('#sheet-menu li');
+
+    const sel = document.getElementById('gsheetTabSelect');
+    if (sheetLinks.length > 0) {
+      sel.innerHTML = Array.from(sheetLinks).map(li => {
+        const name = li.textContent.trim();
+        return `<option value="${name}">${name}</option>`;
+      }).join('');
+    } else {
+      // Fallback: try to parse gid from URL or just offer a single default
+      sel.innerHTML = '<option value="">Sheet1 (default)</option>';
+    }
+    sel.disabled = false;
+    document.getElementById('gsheetLoadBtn').disabled = false;
+  } catch {
+    // Fallback if CORS blocks the htmlview — offer manual entry
+    const sel = document.getElementById('gsheetTabSelect');
+    sel.innerHTML = '<option value="">First sheet (default)</option>';
+    sel.disabled = false;
+    document.getElementById('gsheetLoadBtn').disabled = false;
+    alert('Could not auto-fetch tab names (sheet may not be published). Using first sheet as default — you can rename manually.');
+  }
+}
+
+async function loadGSheet() {
+  const url = document.getElementById('gsheetUrl').value.trim();
+  const tab = document.getElementById('gsheetTabSelect').value.trim();
   if (!url) return alert('Enter a Google Sheet URL.');
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9\-_]+)/);
   if (!match) return alert('Could not extract spreadsheet ID.');
@@ -474,32 +577,86 @@ function unlockStep2() {
   document.getElementById('step1').querySelector('.step-num').textContent = '✓';
   document.getElementById('basePrompt').disabled = false;
   document.getElementById('addIndependentBtn').disabled = false;
-  document.getElementById('addDependentBtn').disabled = false;
+  document.getElementById('addClusterBtn').disabled = false;
   document.getElementById('saveConfigBtn').disabled = false;
   s.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ── Field builder ─────────────────────────────────────────────────────────────
 let fieldCount = 0;
+
+function applyPromptBank(id, selectEl) {
+  const val = selectEl.value;
+  if (!val) return;
+  const entry = PROMPT_BANK.find(p => p.value === val);
+  if (!entry) return;
+  document.getElementById('fprompt-' + id).value = entry.prompt;
+  // If it's a cluster preset, pre-fill the column names too
+  if (entry.isCluster) {
+    const namesEl = document.getElementById('fname-' + id);
+    if (namesEl) namesEl.value = entry.clusterCols;
+  }
+}
+
 function addField(type) {
   fieldCount++;
   const id = fieldCount;
-  const isDependent = type === 'dependent';
+  const isCluster = type === 'cluster';
+
+  // Filter prompt bank to relevant entries
+  const bankOptions = PROMPT_BANK
+    .filter(p => !p.isCluster || isCluster)
+    .map(p => `<option value="${p.value}">${p.label}</option>`)
+    .join('');
+
+  const colCheckboxes = state.columns.map(c =>
+    `<label><input type="checkbox" value="${c}"> ${c}</label>`
+  ).join('');
+
   const div = document.createElement('div');
   div.className = 'field-card';
   div.id = 'field-' + id;
-  const colCheckboxes = state.columns.map(c => `<label><input type="checkbox" value="${c}"> ${c}</label>`).join('');
   div.innerHTML = `
     <div class="field-card-header">
       <div style="display:flex;align-items:center;gap:10px;">
-        <span class="badge ${isDependent ? 'badge-dependent' : 'badge-independent'}">${isDependent ? 'Dependent group' : 'Independent'}</span>
+        <span class="badge ${isCluster ? 'badge-cluster' : 'badge-independent'}">${isCluster ? 'Cluster' : 'Independent'}</span>
         <span style="font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;">Field ${id}</span>
       </div>
       <button class="btn btn-danger" onclick="removeField(${id})">Remove</button>
     </div>
-    ${isDependent ? `<div class="form-group"><label>Output column names (comma-separated)</label><input type="text" id="fname-${id}" placeholder="e.g. category, confidence, evidence"><small>Each name becomes a separate output column.</small></div>`
-    : `<div class="form-group"><label>Output column name</label><input type="text" id="fname-${id}" placeholder="e.g. sentiment"></div>`}
-    <div class="form-group"><label>Prompt</label><textarea id="fprompt-${id}" placeholder="${isDependent ? 'Return a JSON object with keys matching the column names above.' : 'e.g. Classify the sentiment as positive, negative, or neutral'}"></textarea></div>
-    <div class="form-group"><label>Reads from</label><div class="multi-select" id="freads-${id}">${colCheckboxes || '<span style="color:var(--ink-muted);font-size:11px;padding:4px 6px;display:block;font-family:\'DM Mono\',monospace;">Load data first to see columns</span>'}</div></div>`;
+
+    ${isCluster
+      ? `<div class="form-group">
+           <label>Output column names (comma-separated)</label>
+           <input type="text" id="fname-${id}" placeholder="e.g. topic, sentiment, key_quote">
+           <small>Each name becomes a separate column — all filled by one prompt call.</small>
+         </div>`
+      : `<div class="form-group">
+           <label>Output column name</label>
+           <input type="text" id="fname-${id}" placeholder="e.g. sentiment">
+         </div>`
+    }
+
+    <div class="form-group">
+      <label>Prompt</label>
+      <div class="prompt-bank-bar">
+        <label>Prompt bank</label>
+        <select class="prompt-bank-select" onchange="applyPromptBank(${id}, this)">
+          ${bankOptions}
+        </select>
+      </div>
+      <textarea id="fprompt-${id}" placeholder="${isCluster
+        ? 'Return a JSON object with keys matching the column names above.'
+        : 'e.g. Classify the sentiment as positive, negative, or neutral. Return exactly one word.'}"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Reads from</label>
+      <div class="multi-select" id="freads-${id}">
+        ${colCheckboxes || '<span style="color:var(--ink-muted);font-size:11px;padding:4px 6px;display:block;font-family:\'DM Mono\',monospace;">Load data first to see columns</span>'}
+      </div>
+    </div>`;
+
   document.getElementById('fieldsContainer').appendChild(div);
 }
 
@@ -511,9 +668,9 @@ function collectFields() {
     const namesRaw = document.getElementById('fname-' + id)?.value.trim() || '';
     const prompt = document.getElementById('fprompt-' + id)?.value.trim() || '';
     const reads_from = Array.from(card.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
-    const isDependent = card.querySelector('.badge-dependent') !== null;
+    const isCluster = card.querySelector('.badge-cluster') !== null;
     if (!namesRaw || !prompt) return [];
-    if (isDependent) return namesRaw.split(',').map(n => n.trim()).filter(Boolean).map(name => ({ name, prompt, reads_from }));
+    if (isCluster) return namesRaw.split(',').map(n => n.trim()).filter(Boolean).map(name => ({ name, prompt, reads_from }));
     return [{ name: namesRaw, prompt, reads_from }];
   });
 }
@@ -544,6 +701,7 @@ function unlockStep3() {
   s.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ── Run pipeline ──────────────────────────────────────────────────────────────
 async function runPipeline() {
   document.getElementById('processBtn').disabled = true;
   document.getElementById('processingStatus').classList.remove('hidden');
