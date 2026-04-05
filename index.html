@@ -166,14 +166,8 @@
     .cond-add-btn { background: none; border: none; color: var(--amber); font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'DM Mono', monospace; padding: 0; text-decoration: underline; margin-top: 10px; display: block; }
     .cond-no-match { font-size: 11px; color: var(--ink-muted); font-family: 'DM Mono', monospace; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--amber-border); }
 
-    /* ── Tag input ── */
-    .tag-input-wrap { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--amber-border); border-radius: 6px; min-height: 36px; cursor: text; align-items: center; }
-    .tag-input-wrap:focus-within { border-color: var(--border-strong); }
-    .tag { display: inline-flex; align-items: center; gap: 4px; background: var(--amber-bg); border: 1px solid var(--amber-border); color: var(--amber); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-family: 'DM Mono', monospace; font-weight: 500; }
-    .tag-remove { background: none; border: none; color: var(--amber); cursor: pointer; font-size: 12px; padding: 0; line-height: 1; opacity: 0.7; }
-    .tag-remove:hover { opacity: 1; }
-    .tag-input { border: none; outline: none; background: transparent; font-size: 12px; font-family: 'DM Mono', monospace; color: var(--ink); min-width: 80px; flex: 1; padding: 2px 0; }
-    .tag-hint { font-size: 10px; color: var(--ink-dim); font-family: 'DM Mono', monospace; margin-top: 4px; }
+    /* ── Value checklist ── */
+    .cond-val-list { display: flex; flex-wrap: wrap; gap: 2px; padding: 8px; background: var(--surface2); border: 1px solid var(--amber-border); border-radius: 6px; min-height: 36px; margin-bottom: 6px; }
   </style>
 </head>
 <body>
@@ -490,7 +484,6 @@ function addField() {
   div.id = 'field-' + id;
   div.innerHTML = buildFieldCard(id, 'single', false);
   document.getElementById('fieldsContainer').appendChild(div);
-  initTagInputs(div);
 }
 
 function buildFieldCard(id, outputType, hasConditions) {
@@ -566,8 +559,7 @@ function setOutputType(id, type) {
   if (!card) return;
   const hasConditions = document.getElementById('cond-check-' + id)?.checked || false;
   card.innerHTML = buildFieldCard(id, type, hasConditions);
-  initTagInputs(card);
-  // restore branch data if any existed — for simplicity, branches reset on type change
+  // branches reset on type change
 }
 
 function toggleConditions(id) {
@@ -596,12 +588,38 @@ function toggleConditions(id) {
 // ── Branch builder ────────────────────────────────────────────────────────────
 let branchCount = 0;
 
+// ── Categorical column detection ──────────────────────────────────────────────
+function getCategoricalColumns() {
+  if (!state.parsedData) return {};
+  const result = {};
+  state.parsedData.columns.forEach(col => {
+    const values = [...new Set(
+      state.parsedData.rows
+        .map(r => String(r[col] ?? '').trim())
+        .filter(v => v !== '' && v !== 'undefined' && v !== 'null')
+    )];
+    result[col] = values.length >= 2 && values.length <= 30 ? values : null;
+  });
+  return result;
+}
+
+function buildColOptions(catCols) {
+  return state.columns.map(c => {
+    const isCat = catCols[c] !== null && catCols[c] !== undefined;
+    return isCat
+      ? `<option value="${c}">${c}</option>`
+      : `<option value="${c}" disabled style="color:var(--ink-dim)">${c} (free text)</option>`;
+  }).join('');
+}
+
 function addBranch(fieldId) {
   branchCount++;
   const bid = `${fieldId}-${branchCount}`;
-  const colOptions = state.columns.map(c =>
-    `<option value="${c}">${c}</option>`
-  ).join('');
+  const catCols = getCategoricalColumns();
+  const colOptions = buildColOptions(catCols);
+
+  // Find first selectable column
+  const firstCat = state.columns.find(c => catCols[c]);
 
   const branch = document.createElement('div');
   branch.className = 'cond-branch';
@@ -609,81 +627,57 @@ function addBranch(fieldId) {
   branch.innerHTML = `
     <div class="cond-row">
       <span class="cond-if">if</span>
-      <select class="cond-col-select" id="bcol-${bid}">${colOptions}</select>
+      <select class="cond-col-select" id="bcol-${bid}" onchange="onBranchColChange('${bid}')">${colOptions}</select>
       <select class="cond-op-select" id="bop-${bid}">
-        <option value="=">=</option>
-        <option value="!=">!=</option>
+        <option value="is">is</option>
+        <option value="is not">is not</option>
       </select>
       <button class="cond-branch-remove" onclick="removeBranch('${bid}')">×</button>
     </div>
     <div>
-      <label style="font-size:10px;color:var(--amber);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:block;">Values <span style="font-weight:400;opacity:0.7">(press Enter or comma to add)</span></label>
-      <div class="tag-input-wrap" id="tags-wrap-${bid}">
-        <input class="tag-input" id="tag-input-${bid}" placeholder="type a value…">
-      </div>
-      <div class="tag-hint">Multiple values = OR logic. e.g. [es] [fr] [it] → runs if any match.</div>
+      <label style="font-size:10px;color:var(--amber);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;display:block;">Values <span style="font-weight:400;opacity:0.7">(tick all that apply — OR logic)</span></label>
+      <div id="val-list-${bid}" class="cond-val-list"></div>
     </div>
     <textarea class="cond-prompt-area" id="bprompt-${bid}" placeholder="Prompt for this branch…"></textarea>`;
 
   document.getElementById('branches-' + fieldId).appendChild(branch);
-  initTagInput(bid);
+
+  // Set first categorical column and populate values
+  if (firstCat) {
+    document.getElementById('bcol-' + bid).value = firstCat;
+    populateValueList(bid, catCols[firstCat]);
+  }
+}
+
+function onBranchColChange(bid) {
+  const col = document.getElementById('bcol-' + bid)?.value;
+  const catCols = getCategoricalColumns();
+  const values = catCols[col];
+  populateValueList(bid, values || []);
+}
+
+function populateValueList(bid, values) {
+  const container = document.getElementById('val-list-' + bid);
+  if (!container) return;
+  if (!values || values.length === 0) {
+    container.innerHTML = `<span style="font-size:11px;color:var(--ink-dim);font-family:'DM Mono',monospace;">No categorical values found for this column.</span>`;
+    return;
+  }
+  container.innerHTML = values.map(v =>
+    `<label style="display:inline-flex;align-items:center;gap:5px;margin:3px 6px 3px 0;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;color:var(--ink);">
+      <input type="checkbox" value="${v}" style="width:13px;height:13px;accent-color:var(--amber);"> ${v}
+    </label>`
+  ).join('');
 }
 
 function removeBranch(bid) {
   document.getElementById('branch-' + bid)?.remove();
 }
 
-// ── Tag input logic ───────────────────────────────────────────────────────────
-function initTagInputs(container) {
-  // nothing needed — tags are initialised on addBranch
-}
-
-function initTagInput(bid) {
-  const input = document.getElementById('tag-input-' + bid);
-  const wrap = document.getElementById('tags-wrap-' + bid);
-  if (!input || !wrap) return;
-
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addTag(bid, input.value.trim());
-      input.value = '';
-    } else if (e.key === 'Backspace' && input.value === '') {
-      removeLastTag(bid);
-    }
-  });
-
-  input.addEventListener('blur', () => {
-    if (input.value.trim()) {
-      addTag(bid, input.value.trim());
-      input.value = '';
-    }
-  });
-
-  wrap.addEventListener('click', () => input.focus());
-}
-
-function addTag(bid, value) {
-  if (!value) return;
-  const wrap = document.getElementById('tags-wrap-' + bid);
-  const input = document.getElementById('tag-input-' + bid);
-  const tag = document.createElement('span');
-  tag.className = 'tag';
-  tag.dataset.value = value;
-  tag.innerHTML = `${value}<button class="tag-remove" onclick="this.parentElement.remove()">×</button>`;
-  wrap.insertBefore(tag, input);
-}
-
-function removeLastTag(bid) {
-  const wrap = document.getElementById('tags-wrap-' + bid);
-  const tags = wrap.querySelectorAll('.tag');
-  if (tags.length > 0) tags[tags.length - 1].remove();
-}
-
-function getTagValues(bid) {
-  const wrap = document.getElementById('tags-wrap-' + bid);
-  if (!wrap) return [];
-  return Array.from(wrap.querySelectorAll('.tag')).map(t => t.dataset.value);
+function getBranchValues(bid) {
+  const container = document.getElementById('val-list-' + bid);
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
 }
 
 // ── Prompt bank apply ─────────────────────────────────────────────────────────
@@ -717,7 +711,7 @@ function collectFields() {
         const bid = branch.id.replace('branch-', '');
         const column = document.getElementById('bcol-' + bid)?.value || '';
         const operator = document.getElementById('bop-' + bid)?.value || '=';
-        const values = getTagValues(bid);
+        const values = getBranchValues(bid);
         const prompt = document.getElementById('bprompt-' + bid)?.value.trim() || '';
         if (column && values.length > 0 && prompt) {
           conditions.push({ column, operator, values, prompt });
