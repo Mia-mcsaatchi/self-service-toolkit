@@ -125,20 +125,28 @@ def health():
 
 @app.get("/api/export/csv-debug")
 def export_csv_debug():
-    """Returns first 5 rows as JSON — use to diagnose export failures."""
+    """Returns diagnostic info about the export state."""
+    import traceback
     df = _state.get("result_df") or _state.get("df")
     if df is None:
-        raise HTTPException(status_code=400, detail="No data")
+        return {"error": "No data in state"}
     try:
+        # Test 1: can we copy?
         df2 = df.copy()
-        # Sanitise column names
-        df2.columns = [str(c).replace("-", "_").replace(" ", "_") for c in df2.columns]
-        # Coerce all values
+        # Test 2: can we coerce?
         for col in df2.columns:
-            df2[col] = df2[col].fillna("").astype(str).replace("nan", "").replace("None", "")
-        return {"columns": df2.columns.tolist(), "rows": df2.head(5).to_dict("records")}
+            df2[col] = df2[col].fillna("").astype(str)
+        # Test 3: can we to_csv?
+        csv_str = df2.to_csv(index=False)
+        return {
+            "status": "ok",
+            "rows": len(df2),
+            "cols": len(df2.columns),
+            "csv_bytes": len(csv_str),
+            "first_100_chars": csv_str[:100],
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Debug export failed: {type(e).__name__}: {e}")
+        return {"error": str(e), "type": type(e).__name__, "trace": traceback.format_exc()[-500:]}
 
 
 @app.get("/api/debug")
