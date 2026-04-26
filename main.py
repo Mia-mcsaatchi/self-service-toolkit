@@ -123,6 +123,17 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/debug")
+def debug():
+    return {
+        "df_rows": len(_state["df"]) if _state["df"] is not None else None,
+        "df_cols": _state["df"].columns.tolist() if _state["df"] is not None else None,
+        "result_df_rows": len(_state["result_df"]) if _state["result_df"] is not None else None,
+        "result_df_cols": _state["result_df"].columns.tolist() if _state["result_df"] is not None else None,
+        "config_fields": len(_state["config"]["fields"]) if _state["config"] else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Data upload
 # ---------------------------------------------------------------------------
