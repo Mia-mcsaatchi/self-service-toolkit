@@ -28,9 +28,6 @@ app.add_middleware(
         "https://mia-mcsaatchi.github.io",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "null",  # covers file:// origin
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -431,21 +428,34 @@ async def process(body: ProcessRequest):
 # Export
 # ---------------------------------------------------------------------------
 
+def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce all columns to strings to avoid serialisation errors on mixed types."""
+    df = df.copy()
+    for col in df.columns:
+        try:
+            df[col] = df[col].fillna("").astype(str).replace("nan", "").replace("None", "")
+        except Exception:
+            df[col] = df[col].astype(str)
+    return df
+
+
 @app.get("/api/export/csv")
 def export_csv():
     df = _state.get("result_df") or _state.get("df")
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
-
-    buf = io.StringIO()
-    df.to_csv(buf, index=False)
-    buf.seek(0)
-
-    return StreamingResponse(
-        io.BytesIO(buf.getvalue().encode()),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=results.csv"},
-    )
+    try:
+        df = _safe_df(df)
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+        buf.seek(0)
+        return StreamingResponse(
+            io.BytesIO(buf.getvalue().encode()),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=results.csv"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV export failed: {e}")
 
 
 @app.get("/api/export/xlsx")
@@ -453,17 +463,19 @@ def export_xlsx():
     df = _state.get("result_df") or _state.get("df")
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
-
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Results")
-    buf.seek(0)
-
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=results.xlsx"},
-    )
+    try:
+        df = _safe_df(df)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Results")
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=results.xlsx"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"XLSX export failed: {e}")
 
 
 # ---------------------------------------------------------------------------
