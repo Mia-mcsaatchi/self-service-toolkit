@@ -123,6 +123,24 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/export/csv-debug")
+def export_csv_debug():
+    """Returns first 5 rows as JSON — use to diagnose export failures."""
+    df = _state.get("result_df") or _state.get("df")
+    if df is None:
+        raise HTTPException(status_code=400, detail="No data")
+    try:
+        df2 = df.copy()
+        # Sanitise column names
+        df2.columns = [str(c).replace("-", "_").replace(" ", "_") for c in df2.columns]
+        # Coerce all values
+        for col in df2.columns:
+            df2[col] = df2[col].fillna("").astype(str).replace("nan", "").replace("None", "")
+        return {"columns": df2.columns.tolist(), "rows": df2.head(5).to_dict("records")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Debug export failed: {type(e).__name__}: {e}")
+
+
 @app.get("/api/debug")
 def debug():
     return {
@@ -440,11 +458,11 @@ async def process(body: ProcessRequest):
 # ---------------------------------------------------------------------------
 
 def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Coerce all columns to strings to avoid serialisation errors on mixed types."""
+    """Coerce all columns to strings and sanitise names to avoid serialisation errors."""
     df = df.copy()
     for col in df.columns:
         try:
-            df[col] = df[col].fillna("").astype(str).replace("nan", "").replace("None", "")
+            df[col] = df[col].fillna("").astype(str).replace({"nan": "", "None": "", "<NA>": ""})
         except Exception:
             df[col] = df[col].astype(str)
     return df
