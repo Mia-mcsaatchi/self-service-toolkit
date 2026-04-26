@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -183,6 +184,37 @@
     .and-label { font-size: 10px; font-weight: 600; color: var(--ink-dim); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; width: 24px; flex-shrink: 0; }
     .cond-add-and { background: none; border: none; color: var(--ink-muted); font-size: 11px; cursor: pointer; font-family: 'DM Mono', monospace; padding: 4px 0; text-decoration: underline; margin-top: 4px; display: block; }
     .cond-add-and:hover { color: var(--amber); }
+
+    /* ── Analytics Step 4 ─────────────────────────────────────────────────── */
+    .column-mapper { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .mapper-bucket { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .mapper-bucket-title { font-size: 10px; font-weight: 500; color: var(--ink-muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .bucket-cat  { border-top: 2px solid var(--blue); }
+    .bucket-date { border-top: 2px solid var(--green); }
+    .bucket-text { border-top: 2px solid var(--amber); }
+    .bucket-num  { border-top: 2px solid var(--ink-dim); }
+    .bucket-cat  .mapper-bucket-title { color: var(--blue); }
+    .bucket-date .mapper-bucket-title { color: var(--green); }
+    .bucket-text .mapper-bucket-title { color: var(--amber); }
+    .executive-summary { background: var(--blue-bg); border: 1px solid var(--blue-border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 24px; }
+    .exec-title { font-size: 11px; font-weight: 500; color: var(--blue); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .exec-bullets { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .exec-bullets li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--ink); line-height: 1.5; }
+    .exec-bullets li::before { content: "▸"; color: var(--blue); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; }
+    .chart-title { font-size: 12px; font-weight: 600; color: var(--ink); font-family: 'DM Mono', monospace; margin-bottom: 4px; }
+    .chart-tagline { font-size: 11px; color: var(--blue); font-style: italic; margin-bottom: 14px; min-height: 16px; font-family: 'DM Mono', monospace; }
+    .chart-canvas-wrap { position: relative; height: 200px; }
+    .wordcloud-wrap { height: 200px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; overflow: hidden; padding: 6px; }
+    .word-tag { border-radius: 4px; padding: 2px 7px; font-weight: 600; white-space: nowrap; cursor: default; transition: transform .15s; font-family: 'DM Mono', monospace; }
+    .word-tag:hover { transform: scale(1.1); }
+    .verbatims-wrap { max-height: 200px; overflow-y: auto; border-radius: 6px; border: 1px solid var(--border); }
+    .verbatims-wrap table { font-size: 11px; }
+    .verbatims-wrap td { white-space: normal; word-break: break-word; max-width: 320px; }
+    .analytics-loading { text-align: center; padding: 32px; color: var(--ink-muted); font-size: 12px; font-family: 'DM Mono', monospace; }
+    .analytics-loading .spinner { margin: 0 auto 12px; width: 20px; height: 20px; }
+    .analytics-loading p { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -326,6 +358,41 @@
           <button class="btn btn-primary" onclick="exportFile('csv')">Download CSV</button>
           <button class="btn btn-ghost" onclick="exportFile('xlsx')">Download XLSX</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Step 4: Analytics Dashboard -->
+  <div class="step" id="step4">
+    <div class="step-header">
+      <div class="step-num">4</div>
+      <div>
+        <div class="step-title">Analytics dashboard</div>
+        <div class="step-subtitle">AI-powered insights from your enriched data</div>
+      </div>
+    </div>
+    <div class="step-body">
+      <p style="font-size:13px;color:var(--ink-muted);margin-bottom:20px;">
+        Assign your columns to the right types below — suggestions are pre-filled based on column names. Review, then generate your dashboard.
+      </p>
+      <div class="column-mapper" id="columnMapper"></div>
+      <div class="btn-group" style="margin-bottom:24px;">
+        <button class="btn btn-primary" id="generateDashboardBtn" onclick="generateDashboard()">Generate dashboard</button>
+        <button class="btn btn-ghost btn-sm" onclick="resetColumnMapper()">Reset suggestions</button>
+      </div>
+      <div id="dashboardOutput" class="hidden">
+        <div id="dashboardLoading" class="analytics-loading hidden">
+          <div class="spinner"></div>
+          <p id="dashboardLoadingMsg">Preparing your dashboard…</p>
+        </div>
+        <div id="executiveSummaryWrap" class="hidden">
+          <div class="executive-summary">
+            <div class="exec-title">Executive summary</div>
+            <ul class="exec-bullets" id="summaryBullets"></ul>
+          </div>
+        </div>
+        <div class="chart-grid" id="chartGrid"></div>
       </div>
     </div>
   </div>
@@ -874,6 +941,7 @@ async function runPipeline() {
       document.getElementById('resultsSection').classList.remove('hidden');
       document.getElementById('step3').classList.add('done');
       document.getElementById('step3').querySelector('.step-num').textContent = '✓';
+      unlockAnalytics(d.columns);
     }, 400);
   } catch (e) { clearInterval(ticker); alert('Failed: ' + e.message); }
   document.getElementById('processBtn').disabled = false;
@@ -885,6 +953,293 @@ function renderTable(id, cols, rows) {
   document.getElementById(id).innerHTML =
     `<thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>` +
     `<tbody>${rows.map(r => `<tr>${cols.map(c => `<td title="${r[c]??''}">${r[c]??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+// ── Step 4: Analytics ─────────────────────────────────────────────────────────
+
+const COLUMN_HINTS = {
+  categorical: ['sentiment','topic','source','platform','language','category','tag','theme',
+                'type','status','country','region','label','primary_topic','secondary_topic',
+                'sub-theme','subtheme','sub_theme'],
+  datetime:    ['date','time','timestamp','created','published','posted','day','week'],
+  text:        ['text','content','comment','body','message','verbatim','title','thread',
+                'post','description','full text','snippet','full_text'],
+  numerical:   ['count','score','followers','reach','engagement','likes','shares',
+                'retweets','replies','impressions','number','total'],
+};
+
+const PALETTE = ['#1e40af','#7e22ce','#1a7a4a','#92400e','#b91c1c',
+                 '#0369a1','#6b7280','#ca8a04','#be185d','#0f766e'];
+const SENTIMENT_COLOURS = { positive:'#1a7a4a', negative:'#b91c1c', neutral:'#6b7280', mixed:'#ca8a04' };
+const STOPWORDS = new Set(['the','a','an','and','or','but','in','on','at','to','for','of',
+  'with','is','was','are','were','be','been','have','has','had','do','does','did','will',
+  'would','could','should','that','this','it','we','i','you','he','she','they','not','no',
+  'so','as','if','by','from','up','out','just','also','more','very','can','all','get','got',
+  'there','here','when','where','who','which','what','how','then','than','about','into']);
+
+let _chartInstances = {};
+let _resultColumns = [];
+
+function suggestBucket(col) {
+  const lower = col.toLowerCase().replace(/[_\s]/g,' ');
+  for (const [bucket, hints] of Object.entries(COLUMN_HINTS)) {
+    if (hints.some(h => lower.includes(h))) return bucket;
+  }
+  return null;
+}
+
+function unlockAnalytics(columns) {
+  _resultColumns = columns;
+  const step4 = document.getElementById('step4');
+  step4.classList.add('active');
+  buildColumnMapper(columns);
+  setTimeout(() => step4.scrollIntoView({ behavior:'smooth', block:'start' }), 500);
+}
+
+function buildColumnMapper(columns) {
+  const mapper = document.getElementById('columnMapper');
+  mapper.innerHTML = '';
+  const buckets = {
+    categorical: { label:'📊 Categorical', cls:'bucket-cat',  hint:'Sentiment, topic, source…' },
+    datetime:    { label:'📅 Datetime',    cls:'bucket-date', hint:'Date, timestamp…' },
+    text:        { label:'💬 Text',         cls:'bucket-text', hint:'Verbatim, comment, title…' },
+    numerical:   { label:'🔢 Numerical',   cls:'bucket-num',  hint:'Counts, scores…' },
+  };
+  for (const [key, meta] of Object.entries(buckets)) {
+    const div = document.createElement('div');
+    div.className = 'mapper-bucket ' + meta.cls;
+    div.innerHTML = '<div class="mapper-bucket-title">' + meta.label + '</div>' +
+      '<small style="color:var(--ink-muted);margin-bottom:8px;display:block;font-size:10px;font-family:"DM Mono",monospace;">' + meta.hint + '</small>' +
+      '<div class="multi-select" id="bucket-' + key + '">' +
+      columns.map(c => {
+        const s = suggestBucket(c) === key;
+        return '<label class="col-option"><input type="checkbox" value="' + c + '"' + (s?' checked':'') + '> ' + c + (s?' <span style="color:var(--blue);font-size:9px;">✦</span>':'') + '</label>';
+      }).join('') +
+      '</div>';
+    mapper.appendChild(div);
+  }
+}
+
+function resetColumnMapper() { buildColumnMapper(_resultColumns); }
+
+function getChecked(id) {
+  const el = document.getElementById(id);
+  if (!el) return [];
+  return Array.from(el.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+}
+
+function getColumnMap() {
+  return {
+    categorical: getChecked('bucket-categorical'),
+    datetime:    getChecked('bucket-datetime'),
+    text:        getChecked('bucket-text'),
+    numerical:   getChecked('bucket-numerical'),
+  };
+}
+
+async function generateDashboard() {
+  const columnMap = getColumnMap();
+  const hasAny = [...columnMap.categorical,...columnMap.datetime,...columnMap.text,...columnMap.numerical].length > 0;
+  if (!hasAny) return alert('Assign at least one column before generating.');
+
+  document.getElementById('dashboardOutput').classList.remove('hidden');
+  document.getElementById('dashboardLoading').classList.remove('hidden');
+  document.getElementById('executiveSummaryWrap').classList.add('hidden');
+  document.getElementById('chartGrid').innerHTML = '';
+  Object.values(_chartInstances).forEach(c => c.destroy());
+  _chartInstances = {};
+
+  try {
+    // Step 1: embed text columns
+    if (columnMap.text.length > 0) {
+      setLoadingMsg('Embedding text data…');
+      const er = await fetch(base() + '/api/embed', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ column_map: columnMap, use_result: true }),
+      });
+      if (!er.ok) { const e = await er.json(); throw new Error(e.detail || 'Embed failed'); }
+    }
+
+    // Step 2: fetch full result CSV for chart data
+    setLoadingMsg('Computing chart data…');
+    const csvRes = await fetch(base() + '/api/export/csv');
+    const allRows = Papa.parse(await csvRes.text(), { header:true, skipEmptyLines:true }).data;
+
+    // Step 3: build chart configs
+    const charts = buildChartConfigs(allRows, columnMap);
+
+    // Step 4: call /api/analyse
+    setLoadingMsg('Generating AI insights…');
+    const ar = await fetch(base() + '/api/analyse', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        column_map: columnMap,
+        charts: charts.map(c => ({ chart_type:c.type, column:c.column, label:c.label, summary:c.summary })),
+        dataset_label: 'social listening dataset',
+      }),
+    });
+    const ad = await ar.json();
+    if (!ar.ok) throw new Error(ad.detail || 'Analysis failed');
+
+    document.getElementById('dashboardLoading').classList.add('hidden');
+    renderExecutiveSummary(ad.executive_summary);
+    renderCharts(charts, ad.chart_taglines, allRows);
+
+  } catch(e) {
+    document.getElementById('dashboardLoading').classList.add('hidden');
+    alert('Dashboard failed: ' + e.message);
+  }
+}
+
+function setLoadingMsg(msg) { document.getElementById('dashboardLoadingMsg').textContent = msg; }
+
+function countValues(rows, col) {
+  const counts = {};
+  for (const row of rows) {
+    const val = (row[col] || '').trim();
+    if (!val || val === 'n/a') continue;
+    counts[val] = (counts[val] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,20));
+}
+
+function buildTimeSeries(rows, col) {
+  const dc = {};
+  for (const row of rows) {
+    const d = new Date(row[col]);
+    if (isNaN(d)) continue;
+    const k = d.toISOString().slice(0,10);
+    dc[k] = (dc[k]||0)+1;
+  }
+  const sorted = Object.keys(dc).sort();
+  return { labels: sorted, values: sorted.map(k => dc[k]) };
+}
+
+function buildWordFrequency(rows, col) {
+  const freq = {};
+  for (const row of rows) {
+    const words = (row[col]||'').toLowerCase().match(/[a-z]{3,}/g) || [];
+    for (const w of words) {
+      if (STOPWORDS.has(w)) continue;
+      freq[w] = (freq[w]||0)+1;
+    }
+  }
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,60).map(([word,count])=>({word,count}));
+}
+
+function buildChartConfigs(rows, columnMap) {
+  const charts = [];
+  for (const col of columnMap.categorical) {
+    const counts = countValues(rows, col);
+    if (!Object.keys(counts).length) continue;
+    const isSent = col.toLowerCase().includes('sentiment');
+    charts.push({ type: isSent?'sentiment_bar':'value_counts', column:col,
+      label:(isSent?'Sentiment — ':'Distribution — ')+col,
+      summary:{ counts, total:rows.length }, counts });
+  }
+  for (const col of columnMap.datetime) {
+    const ts = buildTimeSeries(rows, col);
+    if (ts.labels.length < 2) continue;
+    charts.push({ type:'line', column:col, label:'Volume over time — '+col,
+      summary:{ labels:ts.labels, values:ts.values, total:rows.length }, timeSeries:ts });
+  }
+  for (const col of columnMap.text) {
+    const wf = buildWordFrequency(rows, col);
+    if (wf.length) {
+      charts.push({ type:'wordcloud', column:col, label:'Word frequency — '+col,
+        summary:{ top_words:wf.slice(0,20).map(w=>w.word), total:rows.length }, wordFreq:wf });
+    }
+    charts.push({ type:'verbatims', column:col, label:'Top verbatims — '+col,
+      summary:{ sample_count:Math.min(rows.length,10), total:rows.length }, rows });
+  }
+  for (const col of columnMap.numerical) {
+    const counts = countValues(rows, col);
+    if (!Object.keys(counts).length) continue;
+    charts.push({ type:'pie', column:col, label:'Distribution — '+col,
+      summary:{ counts, total:rows.length }, counts });
+  }
+  return charts;
+}
+
+function renderExecutiveSummary(bullets) {
+  const ul = document.getElementById('summaryBullets');
+  ul.innerHTML = (bullets||[]).map(b => '<li>'+b+'</li>').join('');
+  document.getElementById('executiveSummaryWrap').classList.remove('hidden');
+}
+
+function sentimentColour(label) {
+  const l = label.toLowerCase();
+  if (l.includes('pos')) return SENTIMENT_COLOURS.positive;
+  if (l.includes('neg')) return SENTIMENT_COLOURS.negative;
+  if (l.includes('neu')) return SENTIMENT_COLOURS.neutral;
+  if (l.includes('mix')) return SENTIMENT_COLOURS.mixed;
+  return PALETTE[0];
+}
+
+function renderCharts(charts, taglines, allRows) {
+  const grid = document.getElementById('chartGrid');
+  grid.innerHTML = '';
+
+  for (const chart of charts) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    const tagline = (taglines && taglines[chart.label]) || '';
+    const safeId = 'chart-' + chart.column.replace(/\W/g,'_') + '-' + chart.type;
+
+    if (chart.type === 'wordcloud') {
+      card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div><div class="wordcloud-wrap" id="wc-'+safeId+'"></div>';
+      grid.appendChild(card);
+      renderWordCloud('wc-'+safeId, chart.wordFreq);
+      continue;
+    }
+    if (chart.type === 'verbatims') {
+      const sample = allRows.slice(0,10);
+      card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div>' +
+        '<div class="verbatims-wrap"><table><thead><tr><th>#</th><th>'+chart.column+'</th></tr></thead><tbody>' +
+        sample.map((r,i) => '<tr><td>'+(i+1)+'</td><td>'+(r[chart.column]||'').slice(0,200)+'</td></tr>').join('') +
+        '</tbody></table></div>';
+      grid.appendChild(card);
+      continue;
+    }
+
+    card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div><div class="chart-canvas-wrap"><canvas id="'+safeId+'"></canvas></div>';
+    grid.appendChild(card);
+    const ctx = document.getElementById(safeId)?.getContext('2d');
+    if (!ctx) continue;
+
+    let instance;
+    if (chart.type === 'sentiment_bar' || chart.type === 'value_counts') {
+      const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
+      const colours = chart.type==='sentiment_bar' ? labels.map(sentimentColour) : labels.map((_,i)=>PALETTE[i%PALETTE.length]);
+      instance = new Chart(ctx, { type:'bar',
+        data:{ labels, datasets:[{ data:values, backgroundColor:colours, borderRadius:4 }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } },
+          scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } }, x:{ ticks:{ maxRotation:45 } } } } });
+    } else if (chart.type === 'pie') {
+      const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
+      instance = new Chart(ctx, { type:'doughnut',
+        data:{ labels, datasets:[{ data:values, backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length]) }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } } } } });
+    } else if (chart.type === 'line') {
+      instance = new Chart(ctx, { type:'line',
+        data:{ labels:chart.timeSeries.labels, datasets:[{ data:chart.timeSeries.values, borderColor:'#1e40af', backgroundColor:'#1e40af22', fill:true, tension:0.3, pointRadius:3 }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
+    }
+    if (instance) _chartInstances[safeId] = instance;
+  }
+}
+
+function renderWordCloud(containerId, wordFreq) {
+  const container = document.getElementById(containerId);
+  if (!container || !wordFreq.length) return;
+  const maxCount = wordFreq[0].count, minCount = wordFreq[wordFreq.length-1].count, range = maxCount-minCount||1;
+  const colours = ['#1e40af','#7e22ce','#1a7a4a','#92400e','#0369a1','#b91c1c','#ca8a04'];
+  container.innerHTML = wordFreq.slice(0,50).map((w,i) => {
+    const ratio = (w.count-minCount)/range;
+    const size = Math.round(10+ratio*20);
+    const colour = colours[i%colours.length];
+    return '<span class="word-tag" title="'+w.word+': '+w.count+' mentions" style="font-size:'+size+'px;background:'+colour+'22;color:'+colour+';opacity:'+(0.6+ratio*0.4)+';">'+w.word+'</span>';
+  }).join('');
 }
 </script>
 </body>
