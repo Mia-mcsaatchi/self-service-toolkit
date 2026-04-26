@@ -123,30 +123,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/export/csv-debug")
-def export_csv_debug():
-    """Returns diagnostic info about the export state."""
-    import traceback
-    df = _state.get("result_df") or _state.get("df")
-    if df is None:
-        return {"error": "No data in state"}
-    try:
-        # Test 1: can we copy?
-        df2 = df.copy()
-        # Test 2: can we coerce?
-        for col in df2.columns:
-            df2[col] = df2[col].fillna("").astype(str)
-        # Test 3: can we to_csv?
-        csv_str = df2.to_csv(index=False)
-        return {
-            "status": "ok",
-            "rows": len(df2),
-            "cols": len(df2.columns),
-            "csv_bytes": len(csv_str),
-            "first_100_chars": csv_str[:100],
-        }
-    except Exception as e:
-        return {"error": str(e), "type": type(e).__name__, "trace": traceback.format_exc()[-500:]}
+
 
 
 @app.get("/api/debug")
@@ -466,7 +443,7 @@ async def process(body: ProcessRequest):
 # ---------------------------------------------------------------------------
 
 def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Coerce all columns to strings and sanitise names to avoid serialisation errors."""
+    """Coerce all values to strings to avoid serialisation errors."""
     df = df.copy()
     for col in df.columns:
         try:
@@ -478,41 +455,34 @@ def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
 
 @app.get("/api/export/csv")
 def export_csv():
+    from fastapi.responses import Response as FastAPIResponse
     df = _state.get("result_df") or _state.get("df")
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
-    try:
-        df = _safe_df(df)
-        buf = io.StringIO()
-        df.to_csv(buf, index=False)
-        buf.seek(0)
-        return StreamingResponse(
-            io.BytesIO(buf.getvalue().encode()),
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=results.csv"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV export failed: {e}")
+    df = _safe_df(df)
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    return FastAPIResponse(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=results.csv"},
+    )
 
 
 @app.get("/api/export/xlsx")
 def export_xlsx():
+    from fastapi.responses import Response as FastAPIResponse
     df = _state.get("result_df") or _state.get("df")
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
-    try:
-        df = _safe_df(df)
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Results")
-        buf.seek(0)
-        return StreamingResponse(
-            buf,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=results.xlsx"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"XLSX export failed: {e}")
+    df = _safe_df(df)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Results")
+    return FastAPIResponse(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=results.xlsx"},
+    )
 
 
 # ---------------------------------------------------------------------------
