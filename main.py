@@ -91,6 +91,11 @@ class RowData(BaseModel):
 # Analytics models
 # ---------------------------------------------------------------------------
 
+class InterpretRequest(BaseModel):
+    intent: str
+    column_summary: Dict[str, Any]
+    dataset_label: str = "social listening dataset"
+
 class ColumnMap(BaseModel):
     categorical: List[str] = []   # sentiment, topic, source, language etc.
     datetime: List[str] = []      # date/timestamp columns
@@ -504,6 +509,55 @@ def export_xlsx():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=results.xlsx"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Analytics — /api/interpret
+# Takes user's plain-English intent + column summary → returns chart configs
+# ---------------------------------------------------------------------------
+
+@app.post("/api/interpret")
+async def interpret_intent(body: InterpretRequest):
+    """LLM interprets user intent into chart configs. Uses server-side API key."""
+    prompt = (
+        f"You are a data analyst building a dashboard. "
+        f"The dataset is: {body.dataset_label}\n"
+        f"Available columns:\n{json.dumps(body.column_summary, indent=2)}\n\n"
+        f"The user wants to explore: \"{body.intent}\"\n\n"
+        f"Based on the user's intent and column types, return a JSON object:\n"
+        f"{{\n"
+        f'  "charts": [\n'
+        f'    {{\n'
+        f'      "type": "bar" | "sentiment_bar" | "line" | "pie" | "wordcloud" | "verbatims",\n'
+        f'      "column": "<column name from the dataset>",\n'
+        f'      "label": "<human-readable chart title>"\n'
+        f'    }}\n'
+        f"  ]\n"
+        f"}}\n\n"
+        f"Rules:\n"
+        f"- Use sentiment_bar only if column contains positive/negative/neutral values\n"
+        f"- Use line only for datetime columns\n"
+        f"- Use wordcloud and verbatims only for free-text columns\n"
+        f"- Use bar for categorical columns with 2-20 unique values\n"
+        f"- Use pie for categorical columns with 2-8 unique values where proportion matters\n"
+        f"- Include 2-6 charts total, most relevant only\n"
+        f"- Every column referenced must exist in the dataset\n"
+        f"- Return ONLY the JSON object, no markdown"
+    )
+
+    semaphore = asyncio.Semaphore(1)
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        raw = await _call_openai(
+            session, semaphore, prompt,
+            model="gpt-4o", response_json=True, max_tokens=600
+        )
+
+    try:
+        result = json.loads(raw)
+        return result
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to interpret intent")
 
 
 # ---------------------------------------------------------------------------
