@@ -453,10 +453,18 @@ def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _get_export_df() -> pd.DataFrame:
+    """Return result_df if available, else df. Avoids ambiguous DataFrame truth value."""
+    df = _state.get("result_df")
+    if df is None:
+        df = _state.get("df")
+    return df
+
+
 @app.get("/api/export/csv")
 def export_csv():
     from fastapi.responses import Response as FastAPIResponse
-    df = _state.get("result_df") or _state.get("df")
+    df = _get_export_df()
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
     df = _safe_df(df)
@@ -471,7 +479,7 @@ def export_csv():
 @app.get("/api/export/xlsx")
 def export_xlsx():
     from fastapi.responses import Response as FastAPIResponse
-    df = _state.get("result_df") or _state.get("df")
+    df = _get_export_df()
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
     df = _safe_df(df)
@@ -565,6 +573,8 @@ async def embed_data(body: EmbedRequest):
     Call this once after pipeline runs (or after uploading a dataset for analytics).
     """
     df = _state.get("result_df") if body.use_result else _state.get("df")
+    if df is None:
+        df = _state.get("df")
     if df is None:
         df = _state.get("df")
     if df is None:
@@ -675,7 +685,7 @@ async def analyse(body: AnalyseRequest):
     Uses gpt-4o for quality reasoning. No hallucination risk on counts because
     the LLM only narrates pre-computed numbers — it never touches raw data directly.
     """
-    df = _state.get("result_df") or _state.get("df")
+    df = _get_export_df()
     if df is None:
         raise HTTPException(status_code=400, detail="No data loaded")
 
