@@ -215,9 +215,54 @@
     .analytics-loading { text-align: center; padding: 32px; color: var(--ink-muted); font-size: 12px; font-family: 'DM Mono', monospace; }
     .analytics-loading .spinner { margin: 0 auto 12px; width: 20px; height: 20px; }
     .analytics-loading p { margin-top: 8px; }
+
+    /* ── Login screen ── */
+    .login-screen { position: fixed; inset: 0; background: var(--bg); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; width: 100%; max-width: 400px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
+    .login-logo { width: 36px; height: 36px; background: var(--ink); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    .login-logo svg { width: 18px; height: 18px; }
+    .login-title { font-family: "Instrument Serif", serif; font-size: 26px; font-weight: 400; color: var(--ink); margin-bottom: 6px; letter-spacing: -0.3px; }
+    .login-subtitle { font-size: 13px; color: var(--ink-muted); margin-bottom: 28px; }
+    .login-error { background: var(--red-bg); border: 1px solid var(--red-border); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; font-family: "DM Mono", monospace; margin-bottom: 16px; display: none; }
+    .login-note { font-size: 11px; color: var(--ink-dim); font-family: "DM Mono", monospace; text-align: center; margin-top: 20px; line-height: 1.6; }
+    .user-pill { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-family: "DM Mono", monospace; color: var(--ink-muted); cursor: default; }
+    .user-avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; flex-shrink: 0; }
   </style>
 </head>
 <body>
+
+<!-- ── Login screen ── -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="white"/><rect x="8" y="1" width="5" height="5" rx="1" fill="white" opacity="0.5"/><rect x="1" y="8" width="5" height="5" rx="1" fill="white" opacity="0.5"/><rect x="8" y="8" width="5" height="5" rx="1" fill="white" opacity="0.25"/></svg>
+    </div>
+    <div class="login-title">Self-Service Toolkit</div>
+    <div class="login-subtitle">M&amp;C Saatchi — Data Team</div>
+
+    <div class="login-error" id="loginError"></div>
+
+    <div class="form-group">
+      <label>Work email</label>
+      <input type="text" id="loginEmail" placeholder="you@mcsaatchi.com" autocomplete="email">
+    </div>
+
+    <div id="apiKeyGroup" style="display:none;">
+      <div class="form-group">
+        <label>OpenAI API key</label>
+        <input type="password" id="loginApiKey" placeholder="sk-...">
+        <small>Required for non-M&amp;C Saatchi accounts. Your key is sent to the server and never stored in the browser.</small>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="handleLogin()">Continue</button>
+
+    <div class="login-note">
+      @mcsaatchi.com accounts sign in instantly.<br>
+      Other accounts require an OpenAI API key.
+    </div>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="topbar-brand">
@@ -227,6 +272,10 @@
     <div class="topbar-name">Self-Service Toolkit</div>
   </div>
   <div class="topbar-org">M&C Saatchi — Data Team</div>
+  <div id="userPill" class="user-pill" style="display:none;">
+    <div class="user-avatar" id="userAvatar">?</div>
+    <span id="userEmail">—</span>
+  </div>
   <a href="docs/" style="font-size:12px;color:var(--ink-muted);text-decoration:none;font-family:'DM Mono',monospace;padding:5px 12px;border:1px solid var(--border);border-radius:999px;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--border-strong)'" onmouseout="this.style.borderColor='var(--border)'">Guide</a>
   <div class="status-pill" id="statusPill">
     <div class="status-dot"></div>
@@ -1353,6 +1402,85 @@ function renderWordCloud(containerId, wordFreq) {
   }).join('');
 }
 
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+
+const MCSAATCHI_DOMAIN = 'mcsaatchi.com';
+let _userEmail = '';
+let _isMcSaatchi = false;
+
+// Show API key field only for non-mcsaatchi emails
+document.getElementById('loginEmail').addEventListener('input', function() {
+  const val = this.value.trim().toLowerCase();
+  const isMc = val.endsWith('@' + MCSAATCHI_DOMAIN);
+  document.getElementById('apiKeyGroup').style.display = isMc ? 'none' : 'block';
+});
+
+// Allow Enter key to submit
+document.getElementById('loginEmail').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') handleLogin();
+});
+document.getElementById('loginApiKey')?.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') handleLogin();
+});
+
+async function handleLogin() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const apiKey = document.getElementById('loginApiKey').value.trim();
+  const errorEl = document.getElementById('loginError');
+
+  errorEl.style.display = 'none';
+
+  // Basic email validation
+  if (!email || !email.includes('@') || !email.includes('.')) {
+    showLoginError('Please enter a valid email address.');
+    return;
+  }
+
+  _isMcSaatchi = email.endsWith('@' + MCSAATCHI_DOMAIN);
+
+  // Non-mcsaatchi users must provide API key
+  if (!_isMcSaatchi && !apiKey) {
+    showLoginError('An OpenAI API key is required for non-M&C Saatchi accounts.');
+    document.getElementById('apiKeyGroup').style.display = 'block';
+    return;
+  }
+
+  // If non-mcsaatchi, send their API key to backend
+  if (!_isMcSaatchi && apiKey) {
+    try {
+      const r = await fetch(BACKEND + '/api/set-api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey }),
+      });
+      if (!r.ok) {
+        showLoginError('Could not validate API key. Please check and try again.');
+        return;
+      }
+      // Cache for analytics intent calls
+      window._cachedApiKey = apiKey;
+    } catch(e) {
+      showLoginError('Could not reach the server. Please try again.');
+      return;
+    }
+  }
+
+  // Success — store user, hide login screen
+  _userEmail = email;
+  document.getElementById('loginScreen').style.display = 'none';
+
+  // Show user pill in topbar
+  document.getElementById('userEmail').textContent = email;
+  document.getElementById('userAvatar').textContent = email[0].toUpperCase();
+  document.getElementById('userPill').style.display = 'flex';
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
 </script>
 </body>
 </html>

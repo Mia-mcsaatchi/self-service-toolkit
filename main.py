@@ -118,6 +118,18 @@ class AnalyseRequest(BaseModel):
 # Health
 # ---------------------------------------------------------------------------
 
+class ApiKeyRequest(BaseModel):
+    api_key: str
+
+@app.post("/api/set-api-key")
+def set_api_key(body: ApiKeyRequest):
+    """Allow external users to set their own OpenAI API key for this session."""
+    key = (body.api_key or "").strip()
+    if not key.startswith("sk-"):
+        raise HTTPException(status_code=400, detail="Invalid API key format")
+    _state["api_key"] = key
+    return {"message": "API key set"}
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -258,8 +270,9 @@ async def _call_openai(
     max_tokens: int = 512,
     retries: int = 2,
 ) -> str:
+    api_key = _state.get("api_key") or OPENAI_API_KEY
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload: Dict[str, Any] = {
