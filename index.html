@@ -369,23 +369,45 @@
       <div class="step-num">4</div>
       <div>
         <div class="step-title">Analytics dashboard</div>
-        <div class="step-subtitle">AI-powered insights from your enriched data</div>
+        <div class="step-subtitle">Tell us what you want to explore — we'll build the charts</div>
       </div>
     </div>
     <div class="step-body">
-      <p style="font-size:13px;color:var(--ink-muted);margin-bottom:20px;">
-        Assign your columns to the right types below — suggestions are pre-filled based on column names. Review, then generate your dashboard.
-      </p>
-      <div class="column-mapper" id="columnMapper"></div>
-      <div class="btn-group" style="margin-bottom:24px;">
-        <button class="btn btn-primary" id="generateDashboardBtn" onclick="generateDashboard()">Generate dashboard</button>
-        <button class="btn btn-ghost btn-sm" onclick="resetColumnMapper()">Reset suggestions</button>
-      </div>
-      <div id="dashboardOutput" class="hidden">
-        <div id="dashboardLoading" class="analytics-loading hidden">
-          <div class="spinner"></div>
-          <p id="dashboardLoadingMsg">Preparing your dashboard…</p>
+
+      <!-- Input panel -->
+      <div id="analyticsInputPanel">
+        <div class="form-group">
+          <label>What do you want to explore?</label>
+          <textarea id="analyticsIntent" rows="3" placeholder="e.g. Show me sentiment breakdown and which topics came up most. Also show how volume changed over time and the most common words people used."></textarea>
+          <small>Plain English is fine — the AI will translate this into charts.</small>
         </div>
+
+        <div class="form-group">
+          <label>Which column contains the main text / verbatim?</label>
+          <select id="analyticsTextCol">
+            <option value="">— select column —</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Any other columns to include? <span style="font-weight:400;opacity:0.6">(optional)</span></label>
+          <div class="multi-select" id="analyticsExtraCols" style="max-height:130px;"></div>
+          <small>Select any additional columns you want charted — sentiment tags, dates, topics, etc.</small>
+        </div>
+
+        <button class="btn btn-primary" id="generateDashboardBtn" onclick="generateDashboard()">Generate dashboard</button>
+      </div>
+
+      <!-- Loading -->
+      <div id="dashboardLoading" class="hidden" style="margin-top:20px;">
+        <div class="alert alert-info">
+          <div class="spinner"></div>
+          <span id="dashboardLoadingMsg">Preparing your dashboard…</span>
+        </div>
+      </div>
+
+      <!-- Dashboard output -->
+      <div id="dashboardOutput" class="hidden" style="margin-top:24px;">
         <div id="executiveSummaryWrap" class="hidden">
           <div class="executive-summary">
             <div class="exec-title">Executive summary</div>
@@ -393,7 +415,11 @@
           </div>
         </div>
         <div class="chart-grid" id="chartGrid"></div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-ghost btn-sm" onclick="resetDashboard()">↩ Start over</button>
+        </div>
       </div>
+
     </div>
   </div>
 
@@ -947,7 +973,27 @@ async function runPipeline() {
   document.getElementById('processBtn').disabled = false;
 }
 
-function exportFile(fmt) { window.open(base() + '/api/export/' + fmt, '_blank'); }
+async function exportFile(fmt) {
+  try {
+    const r = await fetch(base() + '/api/export/' + fmt);
+    if (!r.ok) {
+      const text = await r.text();
+      alert('Export failed: ' + text);
+      return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fmt === 'csv' ? 'results.csv' : 'results.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert('Export failed: ' + e.message);
+  }
+}
 
 function renderTable(id, cols, rows) {
   document.getElementById(id).innerHTML =
@@ -955,18 +1001,8 @@ function renderTable(id, cols, rows) {
     `<tbody>${rows.map(r => `<tr>${cols.map(c => `<td title="${r[c]??''}">${r[c]??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
 }
 
-// ── Step 4: Analytics ─────────────────────────────────────────────────────────
 
-const COLUMN_HINTS = {
-  categorical: ['sentiment','topic','source','platform','language','category','tag','theme',
-                'type','status','country','region','label','primary_topic','secondary_topic',
-                'sub-theme','subtheme','sub_theme'],
-  datetime:    ['date','time','timestamp','created','published','posted','day','week'],
-  text:        ['text','content','comment','body','message','verbatim','title','thread',
-                'post','description','full text','snippet','full_text'],
-  numerical:   ['count','score','followers','reach','engagement','likes','shares',
-                'retweets','replies','impressions','number','total'],
-};
+// ── Step 4: Analytics ─────────────────────────────────────────────────────────
 
 const PALETTE = ['#1e40af','#7e22ce','#1a7a4a','#92400e','#b91c1c',
                  '#0369a1','#6b7280','#ca8a04','#be185d','#0f766e'];
@@ -979,96 +1015,152 @@ const STOPWORDS = new Set(['the','a','an','and','or','but','in','on','at','to','
 
 let _chartInstances = {};
 let _resultColumns = [];
-
-function suggestBucket(col) {
-  const lower = col.toLowerCase().replace(/[_\s]/g,' ');
-  for (const [bucket, hints] of Object.entries(COLUMN_HINTS)) {
-    if (hints.some(h => lower.includes(h))) return bucket;
-  }
-  return null;
-}
+let _allRows = [];
 
 function unlockAnalytics(columns) {
   _resultColumns = columns;
   const step4 = document.getElementById('step4');
   step4.classList.add('active');
-  buildColumnMapper(columns);
+  populateAnalyticsInputs(columns);
   setTimeout(() => step4.scrollIntoView({ behavior:'smooth', block:'start' }), 500);
 }
 
-function buildColumnMapper(columns) {
-  const mapper = document.getElementById('columnMapper');
-  mapper.innerHTML = '';
-  const buckets = {
-    categorical: { label:'📊 Categorical', cls:'bucket-cat',  hint:'Sentiment, topic, source…' },
-    datetime:    { label:'📅 Datetime',    cls:'bucket-date', hint:'Date, timestamp…' },
-    text:        { label:'💬 Text',         cls:'bucket-text', hint:'Verbatim, comment, title…' },
-    numerical:   { label:'🔢 Numerical',   cls:'bucket-num',  hint:'Counts, scores…' },
-  };
-  for (const [key, meta] of Object.entries(buckets)) {
-    const div = document.createElement('div');
-    div.className = 'mapper-bucket ' + meta.cls;
-    div.innerHTML = '<div class="mapper-bucket-title">' + meta.label + '</div>' +
-      '<small style="color:var(--ink-muted);margin-bottom:8px;display:block;font-size:10px;font-family:"DM Mono",monospace;">' + meta.hint + '</small>' +
-      '<div class="multi-select" id="bucket-' + key + '">' +
-      columns.map(c => {
-        const s = suggestBucket(c) === key;
-        return '<label class="col-option"><input type="checkbox" value="' + c + '"' + (s?' checked':'') + '> ' + c + (s?' <span style="color:var(--blue);font-size:9px;">✦</span>':'') + '</label>';
-      }).join('') +
-      '</div>';
-    mapper.appendChild(div);
+function populateAnalyticsInputs(columns) {
+  // Text column dropdown
+  const textSel = document.getElementById('analyticsTextCol');
+  textSel.innerHTML = '<option value="">— select column —</option>' +
+    columns.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+
+  // Auto-suggest text column
+  const textHints = ['text','comment','body','verbatim','message','content','post','full'];
+  const suggested = columns.find(c => textHints.some(h => c.toLowerCase().includes(h)));
+  if (suggested) textSel.value = suggested;
+
+  // Extra columns multi-select
+  const extra = document.getElementById('analyticsExtraCols');
+  extra.innerHTML = columns.map(c => {
+    const autoHints = ['sentiment','topic','date','source','language','platform','category','country'];
+    const checked = autoHints.some(h => c.toLowerCase().includes(h));
+    return '<label class="col-option"><input type="checkbox" value="' + c + '"' + (checked?' checked':'') + '> ' + c + '</label>';
+  }).join('');
+}
+
+// ── LLM interprets user intent into chart config ──────────────────────────────
+async function interpretIntent(intent, textCol, extraCols, allRows) {
+  // Build a column summary to give the LLM context
+  const colSummary = {};
+  const allCols = [textCol, ...extraCols].filter(Boolean);
+  for (const col of allCols) {
+    const vals = [...new Set(allRows.map(r => (r[col]||'').trim()).filter(Boolean))];
+    colSummary[col] = vals.length <= 30
+      ? { type: 'categorical', unique_values: vals.slice(0,20) }
+      : { type: vals.every(v => !isNaN(new Date(v).getTime()) && v.length > 4) ? 'datetime' : vals.every(v => !isNaN(v)) ? 'numerical' : 'text', sample: vals.slice(0,3) };
   }
+
+  const prompt = `You are a data analyst building a dashboard. The user has a dataset with these columns:
+${JSON.stringify(colSummary, null, 2)}
+
+The user wants to explore: "${intent}"
+
+Based on the user's intent and the column types, return a JSON object with this exact structure:
+{
+  "charts": [
+    {
+      "type": "bar" | "sentiment_bar" | "line" | "pie" | "wordcloud" | "verbatims",
+      "column": "<column name from the dataset>",
+      "label": "<human-readable chart title>",
+      "reason": "<one sentence why this chart answers the user's intent>"
+    }
+  ]
 }
 
-function resetColumnMapper() { buildColumnMapper(_resultColumns); }
+Rules:
+- Use "sentiment_bar" only if the column contains sentiment values (positive/negative/neutral)
+- Use "line" only for datetime columns
+- Use "wordcloud" and "verbatims" only for the main text column
+- Use "bar" for categorical columns with 2-20 unique values
+- Use "pie" for categorical columns with 2-8 unique values where proportion matters
+- Include 2-6 charts total — only the most relevant ones
+- Every column referenced must exist in the dataset
+- Return ONLY the JSON object, no markdown`;
 
-function getChecked(id) {
-  const el = document.getElementById(id);
-  if (!el) return [];
-  return Array.from(el.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _getApiKey() },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!r.ok) throw new Error('Intent interpretation failed');
+  const d = await r.json();
+  return JSON.parse(d.choices[0].message.content);
 }
 
-function getColumnMap() {
-  return {
-    categorical: getChecked('bucket-categorical'),
-    datetime:    getChecked('bucket-datetime'),
-    text:        getChecked('bucket-text'),
-    numerical:   getChecked('bucket-numerical'),
-  };
+function _getApiKey() {
+  // API key was set in step 2 config flow — not stored here
+  // For analytics we call OpenAI directly from frontend for intent only
+  // We need the key — prompt user if not cached
+  if (!window._cachedApiKey) {
+    window._cachedApiKey = prompt('Enter your OpenAI API key for analytics:') || '';
+  }
+  return window._cachedApiKey;
 }
 
 async function generateDashboard() {
-  const columnMap = getColumnMap();
-  const hasAny = [...columnMap.categorical,...columnMap.datetime,...columnMap.text,...columnMap.numerical].length > 0;
-  if (!hasAny) return alert('Assign at least one column before generating.');
+  const intent = document.getElementById('analyticsIntent').value.trim();
+  const textCol = document.getElementById('analyticsTextCol').value;
+  const extraCols = Array.from(document.querySelectorAll('#analyticsExtraCols input:checked')).map(cb => cb.value);
 
-  document.getElementById('dashboardOutput').classList.remove('hidden');
+  if (!intent) return alert('Describe what you want to explore first.');
+  if (!textCol) return alert('Select the column that contains the main text.');
+
+  // Show loading, hide output
   document.getElementById('dashboardLoading').classList.remove('hidden');
+  document.getElementById('dashboardOutput').classList.add('hidden');
   document.getElementById('executiveSummaryWrap').classList.add('hidden');
   document.getElementById('chartGrid').innerHTML = '';
   Object.values(_chartInstances).forEach(c => c.destroy());
   _chartInstances = {};
 
   try {
-    // Step 1: embed text columns
-    if (columnMap.text.length > 0) {
-      setLoadingMsg('Embedding text data…');
+    // Step 1: fetch full CSV result
+    setLoadingMsg('Loading data…');
+    const csvRes = await fetch(base() + '/api/export/csv');
+    if (!csvRes.ok) throw new Error('Could not fetch result data — run the pipeline first.');
+    _allRows = Papa.parse(await csvRes.text(), { header:true, skipEmptyLines:true }).data;
+
+    // Step 2: LLM interprets intent into chart configs
+    setLoadingMsg('Interpreting your request…');
+    const allCols = [textCol, ...extraCols].filter(Boolean);
+    const interpreted = await interpretIntent(intent, textCol, extraCols, _allRows);
+    const chartConfigs = (interpreted.charts || []).filter(c => c.column && _resultColumns.includes(c.column));
+
+    if (!chartConfigs.length) throw new Error('Could not identify any relevant charts from your request. Try being more specific.');
+
+    // Step 3: build chart summaries for /api/analyse
+    setLoadingMsg('Computing chart data…');
+    const charts = chartConfigs.map(cfg => buildChartData(cfg, _allRows));
+
+    // Step 4: embed text + call /api/analyse for summary + taglines
+    setLoadingMsg('Embedding text data…');
+    const columnMap = {
+      text: [textCol],
+      categorical: extraCols.filter(c => isLikelyCategorical(c, _allRows)),
+      datetime: extraCols.filter(c => isLikelyDatetime(c, _allRows)),
+      numerical: [],
+    };
+
+    if (textCol) {
       const er = await fetch(base() + '/api/embed', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ column_map: columnMap, use_result: true }),
       });
-      if (!er.ok) { const e = await er.json(); throw new Error(e.detail || 'Embed failed'); }
+      if (!er.ok) console.warn('Embedding failed — taglines will be limited');
     }
 
-    // Step 2: fetch full result CSV for chart data
-    setLoadingMsg('Computing chart data…');
-    const csvRes = await fetch(base() + '/api/export/csv');
-    const allRows = Papa.parse(await csvRes.text(), { header:true, skipEmptyLines:true }).data;
-
-    // Step 3: build chart configs
-    const charts = buildChartConfigs(allRows, columnMap);
-
-    // Step 4: call /api/analyse
     setLoadingMsg('Generating AI insights…');
     const ar = await fetch(base() + '/api/analyse', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1081,9 +1173,11 @@ async function generateDashboard() {
     const ad = await ar.json();
     if (!ar.ok) throw new Error(ad.detail || 'Analysis failed');
 
+    // Step 5: render
     document.getElementById('dashboardLoading').classList.add('hidden');
+    document.getElementById('dashboardOutput').classList.remove('hidden');
     renderExecutiveSummary(ad.executive_summary);
-    renderCharts(charts, ad.chart_taglines, allRows);
+    renderCharts(charts, ad.chart_taglines, _allRows);
 
   } catch(e) {
     document.getElementById('dashboardLoading').classList.add('hidden');
@@ -1091,16 +1185,60 @@ async function generateDashboard() {
   }
 }
 
-function setLoadingMsg(msg) { document.getElementById('dashboardLoadingMsg').textContent = msg; }
+function setLoadingMsg(msg) {
+  document.getElementById('dashboardLoadingMsg').textContent = msg;
+}
 
+function resetDashboard() {
+  document.getElementById('dashboardOutput').classList.add('hidden');
+  document.getElementById('analyticsIntent').value = '';
+  document.getElementById('chartGrid').innerHTML = '';
+  Object.values(_chartInstances).forEach(c => c.destroy());
+  _chartInstances = {};
+}
+
+// ── Column type helpers ───────────────────────────────────────────────────────
+function isLikelyCategorical(col, rows) {
+  const vals = [...new Set(rows.map(r => (r[col]||'').trim()).filter(Boolean))];
+  return vals.length >= 2 && vals.length <= 30;
+}
+
+function isLikelyDatetime(col, rows) {
+  const sample = rows.slice(0,10).map(r => r[col]).filter(Boolean);
+  return sample.length > 0 && sample.filter(v => !isNaN(new Date(v))).length >= sample.length * 0.7;
+}
+
+// ── Build chart data from config + rows ───────────────────────────────────────
+function buildChartData(cfg, rows) {
+  const { type, column, label } = cfg;
+  if (type === 'wordcloud' || type === 'verbatims') {
+    const wf = buildWordFrequency(rows, column);
+    return { type, column, label,
+      summary: { top_words: wf.slice(0,20).map(w=>w.word), total: rows.length },
+      wordFreq: wf, rows };
+  }
+  if (type === 'line') {
+    const ts = buildTimeSeries(rows, column);
+    return { type, column, label,
+      summary: { labels: ts.labels, values: ts.values, total: rows.length },
+      timeSeries: ts };
+  }
+  // bar, sentiment_bar, pie
+  const counts = countValues(rows, column);
+  return { type, column, label,
+    summary: { counts, total: rows.length },
+    counts };
+}
+
+// ── Data helpers ──────────────────────────────────────────────────────────────
 function countValues(rows, col) {
   const counts = {};
   for (const row of rows) {
-    const val = (row[col] || '').trim();
-    if (!val || val === 'n/a') continue;
-    counts[val] = (counts[val] || 0) + 1;
+    const val = (row[col]||'').trim();
+    if (!val || val === 'n/a' || val === 'nan') continue;
+    counts[val] = (counts[val]||0)+1;
   }
-  return Object.fromEntries(Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,20));
+  return Object.fromEntries(Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20));
 }
 
 function buildTimeSeries(rows, col) {
@@ -1127,46 +1265,14 @@ function buildWordFrequency(rows, col) {
   return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,60).map(([word,count])=>({word,count}));
 }
 
-function buildChartConfigs(rows, columnMap) {
-  const charts = [];
-  for (const col of columnMap.categorical) {
-    const counts = countValues(rows, col);
-    if (!Object.keys(counts).length) continue;
-    const isSent = col.toLowerCase().includes('sentiment');
-    charts.push({ type: isSent?'sentiment_bar':'value_counts', column:col,
-      label:(isSent?'Sentiment — ':'Distribution — ')+col,
-      summary:{ counts, total:rows.length }, counts });
-  }
-  for (const col of columnMap.datetime) {
-    const ts = buildTimeSeries(rows, col);
-    if (ts.labels.length < 2) continue;
-    charts.push({ type:'line', column:col, label:'Volume over time — '+col,
-      summary:{ labels:ts.labels, values:ts.values, total:rows.length }, timeSeries:ts });
-  }
-  for (const col of columnMap.text) {
-    const wf = buildWordFrequency(rows, col);
-    if (wf.length) {
-      charts.push({ type:'wordcloud', column:col, label:'Word frequency — '+col,
-        summary:{ top_words:wf.slice(0,20).map(w=>w.word), total:rows.length }, wordFreq:wf });
-    }
-    charts.push({ type:'verbatims', column:col, label:'Top verbatims — '+col,
-      summary:{ sample_count:Math.min(rows.length,10), total:rows.length }, rows });
-  }
-  for (const col of columnMap.numerical) {
-    const counts = countValues(rows, col);
-    if (!Object.keys(counts).length) continue;
-    charts.push({ type:'pie', column:col, label:'Distribution — '+col,
-      summary:{ counts, total:rows.length }, counts });
-  }
-  return charts;
-}
-
+// ── Render executive summary ──────────────────────────────────────────────────
 function renderExecutiveSummary(bullets) {
   const ul = document.getElementById('summaryBullets');
   ul.innerHTML = (bullets||[]).map(b => '<li>'+b+'</li>').join('');
   document.getElementById('executiveSummaryWrap').classList.remove('hidden');
 }
 
+// ── Render charts ─────────────────────────────────────────────────────────────
 function sentimentColour(label) {
   const l = label.toLowerCase();
   if (l.includes('pos')) return SENTIMENT_COLOURS.positive;
@@ -1193,7 +1299,7 @@ function renderCharts(charts, taglines, allRows) {
       continue;
     }
     if (chart.type === 'verbatims') {
-      const sample = allRows.slice(0,10);
+      const sample = (chart.rows||allRows).slice(0,10);
       card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div>' +
         '<div class="verbatims-wrap"><table><thead><tr><th>#</th><th>'+chart.column+'</th></tr></thead><tbody>' +
         sample.map((r,i) => '<tr><td>'+(i+1)+'</td><td>'+(r[chart.column]||'').slice(0,200)+'</td></tr>').join('') +
@@ -1208,22 +1314,27 @@ function renderCharts(charts, taglines, allRows) {
     if (!ctx) continue;
 
     let instance;
-    if (chart.type === 'sentiment_bar' || chart.type === 'value_counts') {
+    if (chart.type === 'sentiment_bar' || chart.type === 'bar') {
       const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
       const colours = chart.type==='sentiment_bar' ? labels.map(sentimentColour) : labels.map((_,i)=>PALETTE[i%PALETTE.length]);
       instance = new Chart(ctx, { type:'bar',
         data:{ labels, datasets:[{ data:values, backgroundColor:colours, borderRadius:4 }] },
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
           scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } }, x:{ ticks:{ maxRotation:45 } } } } });
     } else if (chart.type === 'pie') {
       const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
       instance = new Chart(ctx, { type:'doughnut',
         data:{ labels, datasets:[{ data:values, backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length]) }] },
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } } } } });
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } } } } });
     } else if (chart.type === 'line') {
       instance = new Chart(ctx, { type:'line',
-        data:{ labels:chart.timeSeries.labels, datasets:[{ data:chart.timeSeries.values, borderColor:'#1e40af', backgroundColor:'#1e40af22', fill:true, tension:0.3, pointRadius:3 }] },
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
+        data:{ labels:chart.timeSeries.labels, datasets:[{ data:chart.timeSeries.values,
+          borderColor:'#1e40af', backgroundColor:'#1e40af22', fill:true, tension:0.3, pointRadius:3 }] },
+        options:{ responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
     }
     if (instance) _chartInstances[safeId] = instance;
   }
@@ -1241,6 +1352,7 @@ function renderWordCloud(containerId, wordFreq) {
     return '<span class="word-tag" title="'+w.word+': '+w.count+' mentions" style="font-size:'+size+'px;background:'+colour+'22;color:'+colour+';opacity:'+(0.6+ratio*0.4)+';">'+w.word+'</span>';
   }).join('');
 }
+
 </script>
 </body>
 </html>
