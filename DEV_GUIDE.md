@@ -56,21 +56,33 @@ Full technical reference for the M&C Saatchi Data Team.
 
 ## 2. Backend
 
-**Stack:** Python 3.11, FastAPI, uvicorn, pandas, aiohttp, pydantic, python-dotenv
+**Stack:** Python 3.11, FastAPI, uvicorn, pandas, aiohttp, pydantic, python-dotenv, pyjwt
 
 **Entry point:** `main.py`
 
 **Key globals:**
 
 ```python
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")  # read at startup
+OPENAI_API_KEY      = os.environ.get("OPENAI_API_KEY")       # read at startup
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")  # verifies login tokens
+ALLOWED_EMAIL_DOMAIN = "mcsaatchi.com"                        # who may sign in
+AUTH_DISABLED        = ...                                    # local-only bypass
 
-_state = {
-    "df": None,          # pd.DataFrame — uploaded data
-    "config": None,      # dict — field config from /api/upload-config
-    "result_df": None,   # pd.DataFrame — results after /api/process
-}
+# Per-user working state, keyed by Supabase user id — NOT a single shared dict.
+# Each signed-in colleague gets their own isolated session via _state_for(user).
+_sessions: Dict[str, Dict[str, Any]] = {}
 ```
+
+Each per-user state holds the same fields as before (`df`, `config`,
+`result_df`, embeddings, an optional per-user `api_key`) — see `_new_state()`.
+
+### Authentication
+
+Every `/api/*` endpoint except `/api/health` depends on `get_current_user`,
+which verifies the Supabase access token (`Authorization: Bearer <jwt>`, HS256,
+audience `authenticated`) and enforces `ALLOWED_EMAIL_DOMAIN`. Endpoints read
+and write only `_state_for(user)`, so users cannot see each other's data.
+See `SUPABASE_SETUP.md` for the one-time project setup.
 
 **Request flow for a full pipeline run:**
 
@@ -395,8 +407,8 @@ In `main.py`, add a new route following the pattern of `export_csv` / `export_xl
 
 | Limitation | Impact | Workaround / Plan |
 |---|---|---|
-| In-memory state — single session | Two users running simultaneously overwrite each other's data | Acceptable for MVP internal use. Phase 3: session tokens. |
-| No persistence — server restart clears state | Data and config lost on Railway redeploy | Railway rarely restarts mid-run. Phase 3: file/DB storage. |
+| In-memory state — per user | Each signed-in user is isolated (Phase A ✓), but state still lives in RAM per server process | Fine for the POC. Phase B: persist to Supabase Postgres. |
+| No persistence — server restart clears state | Data and config lost on backend redeploy | Phase B: save datasets/dashboards to Supabase Postgres. |
 | Conditional branching — independent fields only | Dependent fields (chaining on prior output) not yet built | Phase 3 |
 | Google Sheet export | Writing back to a Sheet requires OAuth | Phase 3 |
 | No progress streaming | Long runs (100+ rows) show no per-row progress | Phase 3: SSE streaming |

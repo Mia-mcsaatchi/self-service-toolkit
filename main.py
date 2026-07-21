@@ -8,10 +8,11 @@ import re
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+import jwt
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -19,6 +20,19 @@ from pydantic import BaseModel
 load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# ---------------------------------------------------------------------------
+# Auth config (Supabase)
+# ---------------------------------------------------------------------------
+# Supabase signs its access tokens with this shared secret (HS256). We verify
+# the token offline — no network call to Supabase needed just to authenticate.
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+# Only allow colleagues on this email domain to use the tool. Empty = allow any
+# authenticated user. Set to "" to disable the domain check.
+ALLOWED_EMAIL_DOMAIN = os.environ.get("ALLOWED_EMAIL_DOMAIN", "mcsaatchi.com").strip().lower()
+# Local escape hatch: set AUTH_DISABLED=true to run without Supabase (single
+# shared "local-dev" user). Never enable this in the deployed backend.
+AUTH_DISABLED = os.environ.get("AUTH_DISABLED", "").strip().lower() in ("1", "true", "yes")
 
 app = FastAPI(title="Self-Service Toolkit API")
 
@@ -33,18 +47,83 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ---------------------------------------------------------------------------
-# In-memory state (single-session MVP)
+# Authentication — verify the Supabase JWT and identify the current user
 # ---------------------------------------------------------------------------
-_state: Dict[str, Any] = {
-    "df": None,
-    "config": None,
-    "result_df": None,
-    # Analytics state
-    "embeddings": None,       # np.ndarray of shape (n_rows, embedding_dim)
-    "embedded_texts": None,   # List[str] — the text we embedded (one per row)
-    "column_map": None,       # Dict describing which columns are categorical/datetime/text/numerical
-}
+
+async def get_current_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """FastAPI dependency: validate the Supabase access token on the request.
+
+    Returns a dict with the user's id + email. Raises 401/403 on any problem.
+    Add `user: Dict[str, Any] = Depends(get_current_user)` to any endpoint that
+    should be scoped to a signed-in colleague.
+    """
+    if AUTH_DISABLED:
+        return {"id": "local-dev", "email": f"dev@{ALLOWED_EMAIL_DOMAIN or 'localhost'}"}
+
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="Auth not configured: set SUPABASE_JWT_SECRET on the backend.",
+        )
+
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
+
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    user_id = payload.get("sub")
+    email = (payload.get("email") or "").strip().lower()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing subject claim")
+
+    if ALLOWED_EMAIL_DOMAIN and not email.endswith("@" + ALLOWED_EMAIL_DOMAIN):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access restricted to @{ALLOWED_EMAIL_DOMAIN} accounts",
+        )
+
+    return {"id": user_id, "email": email}
+
+# ---------------------------------------------------------------------------
+# Per-user in-memory working state
+# ---------------------------------------------------------------------------
+# Each signed-in user gets their own isolated working state, keyed by user id.
+# This is the live editing session (uploaded df, config, results, embeddings).
+# Durable storage (saved datasets / dashboards) lands in Supabase Postgres in a
+# later phase — this dict is just the fast in-memory scratch space per user.
+_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def _new_state() -> Dict[str, Any]:
+    return {
+        "df": None,
+        "config": None,
+        "result_df": None,
+        # Analytics state
+        "embeddings": None,       # np.ndarray of shape (n_rows, embedding_dim)
+        "embedded_texts": None,   # List[str] — the text we embedded (one per row)
+        "column_map": None,       # Dict describing which columns are categorical/datetime/text/numerical
+        "api_key": None,          # optional per-user OpenAI key override
+    }
+
+
+def _state_for(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Return (creating if needed) the working state for this user."""
+    uid = user["id"]
+    if uid not in _sessions:
+        _sessions[uid] = _new_state()
+    return _sessions[uid]
 
 BASE_PROMPT = (
     "You are a top-performing data analyst/consultant. "
@@ -127,30 +206,36 @@ class ApiKeyRequest(BaseModel):
     api_key: str
 
 @app.post("/api/set-api-key")
-def set_api_key(body: ApiKeyRequest):
-    """Allow external users to set their own OpenAI API key for this session."""
+def set_api_key(body: ApiKeyRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Allow a user to set their own OpenAI API key for this session."""
     key = (body.api_key or "").strip()
     if not key.startswith("sk-"):
         raise HTTPException(status_code=400, detail="Invalid API key format")
-    _state["api_key"] = key
+    _state_for(user)["api_key"] = key
     return {"message": "API key set"}
 
 @app.get("/api/health")
 def health():
+    """Public liveness probe — intentionally unauthenticated."""
     return {"status": "ok"}
 
 
+@app.get("/api/me")
+def whoami(user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the signed-in user. Handy for the frontend to confirm auth works."""
+    return user
 
 
 
 @app.get("/api/debug")
-def debug():
+def debug(user: Dict[str, Any] = Depends(get_current_user)):
+    st = _state_for(user)
     return {
-        "df_rows": len(_state["df"]) if _state["df"] is not None else None,
-        "df_cols": _state["df"].columns.tolist() if _state["df"] is not None else None,
-        "result_df_rows": len(_state["result_df"]) if _state["result_df"] is not None else None,
-        "result_df_cols": _state["result_df"].columns.tolist() if _state["result_df"] is not None else None,
-        "config_fields": len(_state["config"]["fields"]) if _state["config"] else None,
+        "df_rows": len(st["df"]) if st["df"] is not None else None,
+        "df_cols": st["df"].columns.tolist() if st["df"] is not None else None,
+        "result_df_rows": len(st["result_df"]) if st["result_df"] is not None else None,
+        "result_df_cols": st["result_df"].columns.tolist() if st["result_df"] is not None else None,
+        "config_fields": len(st["config"]["fields"]) if st["config"] else None,
     }
 
 
@@ -159,7 +244,11 @@ def debug():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), sheet: Optional[str] = None):
+async def upload_file(
+    file: UploadFile = File(...),
+    sheet: Optional[str] = None,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
     content = await file.read()
     name = (file.filename or "").lower()
 
@@ -173,10 +262,11 @@ async def upload_file(file: UploadFile = File(...), sheet: Optional[str] = None)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    _state["df"] = df
-    _state["result_df"] = None
-    _state["embeddings"] = None
-    _state["embedded_texts"] = None
+    st = _state_for(user)
+    st["df"] = df
+    st["result_df"] = None
+    st["embeddings"] = None
+    st["embedded_texts"] = None
 
     return {
         "message": "File loaded",
@@ -187,12 +277,13 @@ async def upload_file(file: UploadFile = File(...), sheet: Optional[str] = None)
 
 
 @app.post("/api/upload-data")
-def upload_parsed_data(payload: RowData):
+def upload_parsed_data(payload: RowData, user: Dict[str, Any] = Depends(get_current_user)):
     df = pd.DataFrame(payload.rows, columns=payload.columns)
-    _state["df"] = df
-    _state["result_df"] = None
-    _state["embeddings"] = None
-    _state["embedded_texts"] = None
+    st = _state_for(user)
+    st["df"] = df
+    st["result_df"] = None
+    st["embeddings"] = None
+    st["embedded_texts"] = None
     return {
         "message": "Data loaded",
         "columns": df.columns.tolist(),
@@ -206,16 +297,17 @@ def upload_parsed_data(payload: RowData):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/upload-config")
-def upload_config(config: FieldConfig):
-    _state["config"] = config.model_dump()
+def upload_config(config: FieldConfig, user: Dict[str, Any] = Depends(get_current_user)):
+    _state_for(user)["config"] = config.model_dump()
     return {"message": "Config saved", "field_count": len(config.fields)}
 
 
 @app.get("/api/config")
-def get_config():
-    if not _state["config"]:
+def get_config(user: Dict[str, Any] = Depends(get_current_user)):
+    config = _state_for(user)["config"]
+    if not config:
         raise HTTPException(status_code=404, detail="No config loaded yet")
-    return _state["config"]
+    return config
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +366,9 @@ async def _call_openai(
     response_json: bool = True,
     max_tokens: int = 512,
     retries: int = 2,
+    api_key: Optional[str] = None,
 ) -> str:
-    api_key = _state.get("api_key") or OPENAI_API_KEY
+    api_key = api_key or OPENAI_API_KEY
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -357,8 +450,9 @@ async def _run_pipeline(
     config: Dict[str, Any],
     max_rows: int,
     max_concurrent: int,
+    api_key: Optional[str] = None,
 ) -> pd.DataFrame:
-    if not OPENAI_API_KEY:
+    if not (api_key or OPENAI_API_KEY):
         raise ValueError("OPENAI_API_KEY is not set on the server.")
 
     fields = [f for f in config.get("fields", []) if (f.get("name") or "").strip()]
@@ -410,7 +504,7 @@ async def _run_pipeline(
                     for fn in group["field_names"]
                 ]
                 built_prompt = _build_row_prompt(base_prompt, group_fields, row)
-                raw = await _call_openai(session, semaphore, built_prompt)
+                raw = await _call_openai(session, semaphore, built_prompt, api_key=api_key)
                 try:
                     parsed = json.loads(raw)
                 except Exception:
@@ -432,9 +526,10 @@ async def _run_pipeline(
 
 
 @app.post("/api/process")
-async def process(body: ProcessRequest):
-    df = _state.get("df")
-    config = _state.get("config")
+async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    st = _state_for(user)
+    df = st.get("df")
+    config = st.get("config")
 
     if df is None:
         raise HTTPException(status_code=400, detail="No data loaded — upload a file first")
@@ -442,11 +537,14 @@ async def process(body: ProcessRequest):
         raise HTTPException(status_code=400, detail="No config loaded — configure fields first")
 
     try:
-        result = await _run_pipeline(df, config, body.max_rows, body.max_concurrent)
+        result = await _run_pipeline(
+            df, config, body.max_rows, body.max_concurrent,
+            api_key=st.get("api_key"),
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    _state["result_df"] = result
+    st["result_df"] = result
 
     return {
         "message": "Processing complete",
@@ -471,18 +569,18 @@ def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _get_export_df() -> pd.DataFrame:
+def _get_export_df(st: Dict[str, Any]) -> pd.DataFrame:
     """Return result_df if available, else df. Avoids ambiguous DataFrame truth value."""
-    df = _state.get("result_df")
+    df = st.get("result_df")
     if df is None:
-        df = _state.get("df")
+        df = st.get("df")
     return df
 
 
 @app.get("/api/export/csv")
-def export_csv():
+def export_csv(user: Dict[str, Any] = Depends(get_current_user)):
     from fastapi.responses import Response as FastAPIResponse
-    df = _get_export_df()
+    df = _get_export_df(_state_for(user))
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
     df = _safe_df(df)
@@ -495,9 +593,9 @@ def export_csv():
 
 
 @app.get("/api/export/xlsx")
-def export_xlsx():
+def export_xlsx(user: Dict[str, Any] = Depends(get_current_user)):
     from fastapi.responses import Response as FastAPIResponse
-    df = _get_export_df()
+    df = _get_export_df(_state_for(user))
     if df is None:
         raise HTTPException(status_code=400, detail="No data to export")
     df = _safe_df(df)
@@ -517,8 +615,9 @@ def export_xlsx():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/interpret")
-async def interpret_intent(body: InterpretRequest):
+async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """LLM interprets user intent into chart configs. Uses server-side API key."""
+    api_key = _state_for(user).get("api_key")
     prompt = (
         f"You are a data analyst building a dashboard. "
         f"The dataset is: {body.dataset_label}\n"
@@ -550,7 +649,7 @@ async def interpret_intent(body: InterpretRequest):
     async with aiohttp.ClientSession(timeout=timeout) as session:
         raw = await _call_openai(
             session, semaphore, prompt,
-            model="gpt-4o", response_json=True, max_tokens=600
+            model="gpt-4o", response_json=True, max_tokens=600, api_key=api_key,
         )
 
     try:
@@ -563,18 +662,19 @@ async def interpret_intent(body: InterpretRequest):
 # ---------------------------------------------------------------------------
 # Analytics — /api/embed
 # Embeds the text column(s) using OpenAI text-embedding-3-small.
-# Stores vectors in _state for RAG retrieval during /api/analyse.
+# Stores vectors in the user's session state for RAG retrieval during /api/analyse.
 # ---------------------------------------------------------------------------
 
-async def _get_embeddings(texts: List[str]) -> np.ndarray:
+async def _get_embeddings(texts: List[str], api_key: Optional[str] = None) -> np.ndarray:
     """Batch-embed texts using OpenAI text-embedding-3-small. Returns (n, 1536) float32 array."""
-    if not OPENAI_API_KEY:
+    api_key = api_key or OPENAI_API_KEY
+    if not api_key:
         raise ValueError("OPENAI_API_KEY is not set on the server.")
 
     BATCH = 100  # OpenAI allows up to 2048 per call; keep smaller for safety
     all_vectors: List[List[float]] = []
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
@@ -606,13 +706,13 @@ def _cosine_similarity(query_vec: np.ndarray, corpus_vecs: np.ndarray) -> np.nda
     return normalised @ q
 
 
-def _retrieve_top_k(query: str, k: int = 30) -> List[str]:
+def _retrieve_top_k(st: Dict[str, Any], query: str, k: int = 30) -> List[str]:
     """
-    Retrieve the top-k most semantically relevant texts from _state embeddings.
+    Retrieve the top-k most semantically relevant texts from this user's embeddings.
     Returns list of raw text strings. Used by /api/analyse for verbatim grounding.
     """
-    embeddings = _state.get("embeddings")
-    texts = _state.get("embedded_texts")
+    embeddings = st.get("embeddings")
+    texts = st.get("embedded_texts")
     if embeddings is None or texts is None or len(texts) == 0:
         return []
 
@@ -634,16 +734,15 @@ def _retrieve_top_k(query: str, k: int = 30) -> List[str]:
 
 
 @app.post("/api/embed")
-async def embed_data(body: EmbedRequest):
+async def embed_data(body: EmbedRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """
     Embed the text column(s) for RAG retrieval.
     Call this once after pipeline runs (or after uploading a dataset for analytics).
     """
-    df = _state.get("result_df") if body.use_result else _state.get("df")
+    st = _state_for(user)
+    df = st.get("result_df") if body.use_result else st.get("df")
     if df is None:
-        df = _state.get("df")
-    if df is None:
-        df = _state.get("df")
+        df = st.get("df")
     if df is None:
         raise HTTPException(status_code=400, detail="No data loaded")
 
@@ -664,13 +763,13 @@ async def embed_data(body: EmbedRequest):
     texts = [t if t.strip() else "(empty)" for t in texts]
 
     try:
-        vectors = await _get_embeddings(texts)
+        vectors = await _get_embeddings(texts, api_key=st.get("api_key"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
 
-    _state["embeddings"] = vectors
-    _state["embedded_texts"] = texts
-    _state["column_map"] = body.column_map.model_dump()
+    st["embeddings"] = vectors
+    st["embedded_texts"] = texts
+    st["column_map"] = body.column_map.model_dump()
 
     return {
         "message": "Embeddings stored",
@@ -743,7 +842,7 @@ def _compute_column_stats(df: pd.DataFrame, column_map: Dict) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/analyse")
-async def analyse(body: AnalyseRequest):
+async def analyse(body: AnalyseRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """
     Generate:
     1. Executive summary (4-5 bullet headlines) — grounded in full structured stats
@@ -752,7 +851,9 @@ async def analyse(body: AnalyseRequest):
     Uses gpt-4o for quality reasoning. No hallucination risk on counts because
     the LLM only narrates pre-computed numbers — it never touches raw data directly.
     """
-    df = _get_export_df()
+    st = _state_for(user)
+    api_key = st.get("api_key")
+    df = _get_export_df(st)
     if df is None:
         raise HTTPException(status_code=400, detail="No data loaded")
 
@@ -782,6 +883,7 @@ async def analyse(body: AnalyseRequest):
     chart_prompts = []
     for chart in body.charts:
         verbatims = _retrieve_top_k(
+            st,
             query=f"{chart.column} {chart.label} {chart.chart_type}",
             k=25,
         )
@@ -809,13 +911,13 @@ async def analyse(body: AnalyseRequest):
         # Executive summary
         summary_task = _call_openai(
             session, semaphore, summary_prompt,
-            model="gpt-4o", response_json=True, max_tokens=400
+            model="gpt-4o", response_json=True, max_tokens=400, api_key=api_key,
         )
         # Taglines — one per chart
         tagline_tasks = [
             _call_openai(
                 session, semaphore, prompt,
-                model="gpt-4o", response_json=True, max_tokens=100
+                model="gpt-4o", response_json=True, max_tokens=100, api_key=api_key,
             )
             for _, prompt in chart_prompts
         ]

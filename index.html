@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -224,6 +225,7 @@
     .login-title { font-family: "Instrument Serif", serif; font-size: 26px; font-weight: 400; color: var(--ink); margin-bottom: 6px; letter-spacing: -0.3px; }
     .login-subtitle { font-size: 13px; color: var(--ink-muted); margin-bottom: 28px; }
     .login-error { background: var(--red-bg); border: 1px solid var(--red-border); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; font-family: "DM Mono", monospace; margin-bottom: 16px; display: none; }
+    .login-info { background: var(--surface2); border: 1px solid var(--border); color: var(--ink-muted); border-radius: var(--radius); padding: 10px 14px; font-size: 12px; font-family: "DM Mono", monospace; margin-bottom: 16px; line-height: 1.5; }
     .login-note { font-size: 11px; color: var(--ink-dim); font-family: "DM Mono", monospace; text-align: center; margin-top: 20px; line-height: 1.6; }
     .user-pill { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-family: "DM Mono", monospace; color: var(--ink-muted); cursor: default; }
     .user-avatar { width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; flex-shrink: 0; }
@@ -241,25 +243,18 @@
     <div class="login-subtitle">M&amp;C Saatchi — Data Team</div>
 
     <div class="login-error" id="loginError"></div>
+    <div class="login-info" id="loginInfo" style="display:none;"></div>
 
     <div class="form-group">
       <label>Work email</label>
       <input type="text" id="loginEmail" placeholder="you@mcsaatchi.com" autocomplete="email">
     </div>
 
-    <div id="apiKeyGroup" style="display:none;">
-      <div class="form-group">
-        <label>OpenAI API key</label>
-        <input type="password" id="loginApiKey" placeholder="sk-...">
-        <small>Required for non-M&amp;C Saatchi accounts. Your key is sent to the server and never stored in the browser.</small>
-      </div>
-    </div>
-
-    <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="handleLogin()">Continue</button>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="handleLogin()">Send login link</button>
 
     <div class="login-note">
-      @mcsaatchi.com accounts sign in instantly.<br>
-      Other accounts require an OpenAI API key.
+      Sign in with your @mcsaatchi.com email.<br>
+      We'll email you a secure one-click login link — no password needed.
     </div>
   </div>
 </div>
@@ -480,6 +475,33 @@ const BACKEND = 'https://self-service-toolkit-production.up.railway.app';
 const state = { columns: [], parsedData: null, workbook: null };
 function base() { return BACKEND; }
 
+// ── Supabase auth ───────────────────────────────────────────────────────────
+// Fill these in from Supabase → Project Settings → API. Both are PUBLIC and
+// safe to ship in the frontend (the anon key is designed for browser use).
+// Never put the service_role key or JWT secret here — those are backend-only.
+const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR-SUPABASE-ANON-KEY';
+
+const _supaReady = !!(window.supabase && SUPABASE_URL && !SUPABASE_URL.includes('YOUR-PROJECT'));
+const supa = _supaReady ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+let _accessToken = null;   // Supabase JWT, attached to every backend call
+let _userEmail = '';
+
+// Merge the auth header into any request headers.
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  if (_accessToken) h['Authorization'] = 'Bearer ' + _accessToken;
+  return h;
+}
+
+// Thin wrapper around fetch() that targets the backend and injects the JWT.
+// Use for every /api/* call except the public health check.
+async function api(path, opts = {}) {
+  opts.headers = authHeaders(opts.headers);
+  return fetch(BACKEND + path, opts);
+}
+
 // ── Prompt bank ───────────────────────────────────────────────────────────────
 const PROMPT_BANK = [
   { label: '— Select from prompt bank —', value: '' },
@@ -512,7 +534,7 @@ const PROMPT_BANK = [
 // ── Health check ──────────────────────────────────────────────────────────────
 async function checkHealth() {
   try {
-    const r = await fetch(base() + '/api/health');
+    const r = await api('/api/health');
     const d = await r.json();
     if (d.status === 'ok') {
       document.getElementById('statusPill').classList.add('ok');
@@ -572,7 +594,7 @@ async function uploadParsedData() {
   document.getElementById('uploadBtn').disabled = true;
   try {
     const rowArrays = state.parsedData.rows.map(r => state.parsedData.columns.map(c => r[c] ?? ''));
-    const r = await fetch(base() + '/api/upload-data', {
+    const r = await api('/api/upload-data', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ columns: state.parsedData.columns, rows: rowArrays }),
     });
@@ -600,7 +622,7 @@ async function loadGSheet() {
     Papa.parse(await res.text(), { header: true, skipEmptyLines: true, complete: async parsed => {
       setParsedData(parsed.meta.fields, parsed.data);
       const rowArrays = parsed.data.map(r => parsed.meta.fields.map(c => r[c] ?? ''));
-      const r2 = await fetch(base() + '/api/upload-data', {
+      const r2 = await api('/api/upload-data', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ columns: parsed.meta.fields, rows: rowArrays }),
       });
@@ -968,7 +990,7 @@ async function saveConfig() {
   const fields = collectFields();
   if (!fields.length) return alert('Add at least one field with a name first.');
   try {
-    const r = await fetch(base() + '/api/upload-config', {
+    const r = await api('/api/upload-config', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ base_prompt: document.getElementById('basePrompt').value, fields }),
     });
@@ -999,7 +1021,7 @@ async function runPipeline() {
   const bar = document.getElementById('progressBar');
   const ticker = setInterval(() => { prog = Math.min(prog + Math.random() * 3, 90); bar.style.width = prog + '%'; }, 400);
   try {
-    const r = await fetch(base() + '/api/process', {
+    const r = await api('/api/process', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         max_rows: parseInt(document.getElementById('maxRows').value) || 0,
@@ -1024,7 +1046,7 @@ async function runPipeline() {
 
 async function exportFile(fmt) {
   try {
-    const r = await fetch(base() + '/api/export/' + fmt);
+    const r = await api('/api/export/' + fmt);
     if (!r.ok) {
       const text = await r.text();
       alert('Export failed: ' + text);
@@ -1112,7 +1134,7 @@ async function interpretIntent(intent, textCol, extraCols, allRows) {
     }
   }
 
-  const r = await fetch(base() + '/api/interpret', {
+  const r = await api('/api/interpret', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1147,7 +1169,7 @@ async function generateDashboard() {
   try {
     // Step 1: fetch full CSV result
     setLoadingMsg('Loading data…');
-    const csvRes = await fetch(base() + '/api/export/csv');
+    const csvRes = await api('/api/export/csv');
     if (!csvRes.ok) throw new Error('Could not fetch result data — run the pipeline first.');
     _allRows = Papa.parse(await csvRes.text(), { header:true, skipEmptyLines:true }).data;
 
@@ -1173,7 +1195,7 @@ async function generateDashboard() {
     };
 
     if (textCol) {
-      const er = await fetch(base() + '/api/embed', {
+      const er = await api('/api/embed', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ column_map: columnMap, use_result: true }),
       });
@@ -1181,7 +1203,7 @@ async function generateDashboard() {
     }
 
     setLoadingMsg('Generating AI insights…');
-    const ar = await fetch(base() + '/api/analyse', {
+    const ar = await api('/api/analyse', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         column_map: columnMap,
@@ -1373,77 +1395,87 @@ function renderWordCloud(containerId, wordFreq) {
 }
 
 
-// ── Login ─────────────────────────────────────────────────────────────────────
+// ── Login (Supabase magic link) ─────────────────────────────────────────────
 
 const MCSAATCHI_DOMAIN = 'mcsaatchi.com';
-let _userEmail = '';
-let _isMcSaatchi = false;
-
-// Show API key field only for non-mcsaatchi emails
-document.getElementById('loginEmail').addEventListener('input', function() {
-  const val = this.value.trim().toLowerCase();
-  const isMc = val.endsWith('@' + MCSAATCHI_DOMAIN);
-  document.getElementById('apiKeyGroup').style.display = isMc ? 'none' : 'block';
-});
 
 // Allow Enter key to submit
 document.getElementById('loginEmail').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') handleLogin();
 });
-document.getElementById('loginApiKey')?.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') handleLogin();
-});
+
+// Called once at startup: restore an existing session or wait for sign-in.
+async function initAuth() {
+  if (!supa) {
+    showLoginError('Sign-in is not configured yet. Set SUPABASE_URL and SUPABASE_ANON_KEY in index.html.');
+    document.getElementById('loginEmail').disabled = true;
+    return;
+  }
+  // React to sign-in / sign-out, including the redirect back from a magic link.
+  supa.auth.onAuthStateChange((_event, session) => {
+    if (session) onAuthed(session); else onSignedOut();
+  });
+  const { data } = await supa.auth.getSession();
+  if (data.session) onAuthed(data.session);
+}
+
+function onAuthed(session) {
+  _accessToken = session.access_token;
+  _userEmail = (session.user && session.user.email) || '';
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('userEmail').textContent = _userEmail;
+  document.getElementById('userAvatar').textContent = (_userEmail[0] || '?').toUpperCase();
+  const pill = document.getElementById('userPill');
+  pill.style.display = 'flex';
+  pill.style.cursor = 'pointer';
+  pill.title = 'Sign out';
+  pill.onclick = handleLogout;
+}
+
+function onSignedOut() {
+  _accessToken = null;
+  _userEmail = '';
+  document.getElementById('userPill').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
 
 async function handleLogin() {
   const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-  const apiKey = document.getElementById('loginApiKey').value.trim();
-  const errorEl = document.getElementById('loginError');
+  document.getElementById('loginError').style.display = 'none';
 
-  errorEl.style.display = 'none';
-
-  // Basic email validation
   if (!email || !email.includes('@') || !email.includes('.')) {
     showLoginError('Please enter a valid email address.');
     return;
   }
-
-  _isMcSaatchi = email.endsWith('@' + MCSAATCHI_DOMAIN);
-
-  // Non-mcsaatchi users must provide API key
-  if (!_isMcSaatchi && !apiKey) {
-    showLoginError('An OpenAI API key is required for non-M&C Saatchi accounts.');
-    document.getElementById('apiKeyGroup').style.display = 'block';
+  if (!email.endsWith('@' + MCSAATCHI_DOMAIN)) {
+    showLoginError('Access is limited to @' + MCSAATCHI_DOMAIN + ' accounts.');
+    return;
+  }
+  if (!supa) {
+    showLoginError('Sign-in is not configured yet.');
     return;
   }
 
-  // If non-mcsaatchi, send their API key to backend
-  if (!_isMcSaatchi && apiKey) {
-    try {
-      const r = await fetch(BACKEND + '/api/set-api-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey }),
-      });
-      if (!r.ok) {
-        showLoginError('Could not validate API key. Please check and try again.');
-        return;
-      }
-      // Cache for analytics intent calls
-      window._cachedApiKey = apiKey;
-    } catch(e) {
-      showLoginError('Could not reach the server. Please try again.');
-      return;
-    }
+  const btn = document.querySelector('#loginScreen .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const { error } = await supa.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href.split('#')[0] },
+  });
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Send login link'; }
+
+  if (error) {
+    showLoginError(error.message || 'Could not send the login link. Please try again.');
+    return;
   }
+  showLoginInfo('Check your inbox — we sent a login link to ' + email + '. Open it on this device to sign in.');
+}
 
-  // Success — store user, hide login screen
-  _userEmail = email;
-  document.getElementById('loginScreen').style.display = 'none';
-
-  // Show user pill in topbar
-  document.getElementById('userEmail').textContent = email;
-  document.getElementById('userAvatar').textContent = email[0].toUpperCase();
-  document.getElementById('userPill').style.display = 'flex';
+async function handleLogout() {
+  if (supa) await supa.auth.signOut();
+  onSignedOut();
 }
 
 function showLoginError(msg) {
@@ -1451,6 +1483,14 @@ function showLoginError(msg) {
   el.textContent = msg;
   el.style.display = 'block';
 }
+
+function showLoginInfo(msg) {
+  const el = document.getElementById('loginInfo');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+initAuth();
 </script>
 </body>
 </html>

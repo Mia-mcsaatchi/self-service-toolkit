@@ -61,15 +61,23 @@ cd self-service-toolkit
 # Install dependencies
 pip install -r requirements.txt
 
-# Create .env with your OpenAI key
+# Create .env with your keys
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY=sk-...
+# For local dev without Supabase, also set AUTH_DISABLED=true
 
 # Start the server
 uvicorn main:app --reload
 ```
 
 Backend runs at `http://127.0.0.1:8000`. Open `index.html` in a browser or visit `/docs` for the interactive API explorer.
+
+### Sign-in / multi-user
+
+Colleagues sign in with their `@mcsaatchi.com` email via a magic link (Supabase
+Auth), and each person's uploads and results are kept separate. One-time setup
+lives in **`SUPABASE_SETUP.md`**. To run locally without Supabase, set
+`AUTH_DISABLED=true`.
 
 ---
 
