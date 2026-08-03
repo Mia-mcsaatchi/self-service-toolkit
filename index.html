@@ -471,7 +471,12 @@
 </div>
 
 <script>
-const BACKEND = 'https://self-service-toolkit-production.up.railway.app';
+// When the page is opened locally (VS Code Live Server, python http.server, …)
+// talk to the backend running on your machine; otherwise use the hosted one.
+const _isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+const BACKEND = _isLocal
+  ? 'http://127.0.0.1:8000'
+  : 'https://self-service-toolkit-production.up.railway.app';
 const state = { columns: [], parsedData: null, workbook: null };
 function base() { return BACKEND; }
 
