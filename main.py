@@ -24,9 +24,14 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # ---------------------------------------------------------------------------
 # Auth config (Supabase)
 # ---------------------------------------------------------------------------
-# Supabase signs its access tokens with this shared secret (HS256). We verify
-# the token offline — no network call to Supabase needed just to authenticate.
+# Supabase can sign access tokens two ways:
+#   • Legacy: a shared secret, HS256 — verified offline with SUPABASE_JWT_SECRET.
+#   • Newer:  asymmetric keys, ES256/RS256 — verified against the project's public
+#             JWKS endpoint (needs SUPABASE_URL). The backend supports both.
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+# Backend base URL of your Supabase project, e.g. https://xxxx.supabase.co
+# Only needed for the asymmetric (new signing keys) verification path.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
 # Only allow colleagues on this email domain to use the tool. Empty = allow any
 # authenticated user. Set to "" to disable the domain check.
 ALLOWED_EMAIL_DOMAIN = os.environ.get("ALLOWED_EMAIL_DOMAIN", "mcsaatchi.com").strip().lower()
@@ -53,6 +58,50 @@ app.add_middleware(
 # Authentication — verify the Supabase JWT and identify the current user
 # ---------------------------------------------------------------------------
 
+_jwk_client = None  # lazily created PyJWKClient, caches Supabase's public keys
+
+
+def _get_jwk_client():
+    """Return a cached PyJWKClient pointed at the project's JWKS endpoint."""
+    global _jwk_client
+    if _jwk_client is None:
+        if not SUPABASE_URL:
+            raise HTTPException(
+                status_code=503,
+                detail="Auth not configured: set SUPABASE_URL for asymmetric JWT verification.",
+            )
+        _jwk_client = jwt.PyJWKClient(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json")
+    return _jwk_client
+
+
+def _verify_token(token: str) -> Dict[str, Any]:
+    """Verify a Supabase access token via HS256 (shared secret) or ES256/RS256
+    (asymmetric keys), picking the path from the token's own algorithm header."""
+    try:
+        alg = jwt.get_unverified_header(token).get("alg", "HS256")
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token header: {e}")
+
+    try:
+        if alg == "HS256":
+            if not SUPABASE_JWT_SECRET:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Auth not configured: set SUPABASE_JWT_SECRET on the backend.",
+                )
+            return jwt.decode(
+                token, SUPABASE_JWT_SECRET,
+                algorithms=["HS256"], audience="authenticated",
+            )
+        signing_key = _get_jwk_client().get_signing_key_from_jwt(token).key
+        return jwt.decode(
+            token, signing_key,
+            algorithms=["ES256", "RS256"], audience="authenticated",
+        )
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+
 async def get_current_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     """FastAPI dependency: validate the Supabase access token on the request.
 
@@ -63,25 +112,11 @@ async def get_current_user(authorization: Optional[str] = Header(default=None)) 
     if AUTH_DISABLED:
         return {"id": "local-dev", "email": f"dev@{ALLOWED_EMAIL_DOMAIN or 'localhost'}"}
 
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(
-            status_code=503,
-            detail="Auth not configured: set SUPABASE_JWT_SECRET on the backend.",
-        )
-
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
 
     token = authorization.split(" ", 1)[1].strip()
-    try:
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-    except jwt.PyJWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    payload = _verify_token(token)
 
     user_id = payload.get("sub")
     email = (payload.get("email") or "").strip().lower()

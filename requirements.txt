@@ -6,4 +6,4 @@ aiohttp==3.10.5
 python-multipart==0.0.12
 pydantic==2.9.2
 python-dotenv==1.0.1
-pyjwt==2.9.0
+pyjwt[crypto]==2.9.0
