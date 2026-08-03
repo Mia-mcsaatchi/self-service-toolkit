@@ -479,10 +479,11 @@ function base() { return BACKEND; }
 // Fill these in from Supabase → Project Settings → API. Both are PUBLIC and
 // safe to ship in the frontend (the anon key is designed for browser use).
 // Never put the service_role key or JWT secret here — those are backend-only.
-const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
+const SUPABASE_URL = 'https://wyhtzqurehmgejpsdlpf.supabase.co';
 const SUPABASE_ANON_KEY = 'YOUR-SUPABASE-ANON-KEY';
 
-const _supaReady = !!(window.supabase && SUPABASE_URL && !SUPABASE_URL.includes('YOUR-PROJECT'));
+const _supaReady = !!(window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY
+  && !SUPABASE_URL.includes('YOUR-PROJECT') && !SUPABASE_ANON_KEY.includes('YOUR-SUPABASE-ANON-KEY'));
 const supa = _supaReady ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 let _accessToken = null;   // Supabase JWT, attached to every backend call
