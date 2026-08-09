@@ -262,8 +262,8 @@
     <div class="login-info" id="loginInfo" style="display:none;"></div>
 
     <div class="login-tabs" style="display:flex;gap:6px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:4px;">
-      <button type="button" id="tabMagic" class="login-tab" onclick="setLoginMode('magic')" style="flex:1;border:none;background:var(--blue);color:#fff;border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Magic link</button>
-      <button type="button" id="tabPassword" class="login-tab" onclick="setLoginMode('password')" style="flex:1;border:none;background:transparent;color:var(--ink-muted);border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Password</button>
+      <button type="button" id="tabMagic" class="login-tab" onclick="setLoginMode('magic')" style="flex:1;border:none;background:transparent;color:var(--ink-muted);border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Magic link</button>
+      <button type="button" id="tabPassword" class="login-tab" onclick="setLoginMode('password')" style="flex:1;border:none;background:var(--blue);color:#fff;border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Password</button>
     </div>
 
     <div class="form-group">
@@ -271,17 +271,17 @@
       <input type="text" id="loginEmail" placeholder="you@mcsaatchi.com" autocomplete="email">
     </div>
 
-    <div class="form-group" id="passwordGroup" style="display:none;">
+    <div class="form-group" id="passwordGroup">
       <label>Password</label>
       <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
     </div>
 
-    <button class="btn btn-primary" id="loginPrimaryBtn" style="width:100%;justify-content:center;" onclick="handleLogin()">Send login link</button>
-    <button class="btn btn-ghost" id="loginSignupBtn" style="width:100%;justify-content:center;display:none;margin-top:8px;" onclick="handleSignup()">Create an account</button>
+    <button class="btn btn-primary" id="loginPrimaryBtn" style="width:100%;justify-content:center;" onclick="handleLogin()">Sign in</button>
+    <button class="btn btn-ghost" id="loginSignupBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="handleSignup()">Create an account</button>
 
     <div class="login-note" id="loginNote">
-      Sign in with your @mcsaatchi.com email.<br>
-      We'll email you a secure one-click login link — no password needed.
+      First time? Enter your @mcsaatchi.com email and a password, then <b>Create an account</b> to get started.<br>
+      Already have an account? Just <b>Sign in</b>. Prefer no password? Use the <b>Magic link</b> tab.
     </div>
   </div>
 </div>
@@ -2188,7 +2188,7 @@ function renderWordCloud(containerId, wordFreq) {
 // ── Login (Supabase magic link) ─────────────────────────────────────────────
 
 const MCSAATCHI_DOMAIN = 'mcsaatchi.com';
-let _loginMode = 'magic';       // 'magic' | 'password'
+let _loginMode = 'password';    // 'magic' | 'password' — password is the default (reliable, no email dependency)
 let _authMethod = 'magic link'; // how the current user signed in (for the account panel)
 
 // Switch the login form between magic-link and email+password modes.
@@ -2206,7 +2206,7 @@ function setLoginMode(mode) {
   document.getElementById('loginPrimaryBtn').textContent = magic ? 'Send login link' : 'Sign in';
   document.getElementById('loginNote').innerHTML = magic
     ? 'Sign in with your @' + MCSAATCHI_DOMAIN + ' email.<br>We\'ll email you a secure one-click login link — no password needed.'
-    : 'New here? Enter your @' + MCSAATCHI_DOMAIN + ' email and a password, then <b>Create an account</b>. You\'ll get a confirmation email once.';
+    : 'First time? Enter your @' + MCSAATCHI_DOMAIN + ' email and a password, then <b>Create an account</b> to get started.<br>Already have an account? Just <b>Sign in</b>. Prefer no password? Use the <b>Magic link</b> tab.';
   document.getElementById('loginError').style.display = 'none';
   document.getElementById('loginInfo').style.display = 'none';
 }
