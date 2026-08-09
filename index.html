@@ -1336,12 +1336,12 @@ async function generateDashboard() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         column_map: columnMap,
-        charts: charts.map(c => ({ chart_type:c.type, column:c.column, label:c.label, summary:c.summary })),
+        charts: charts.map(c => ({ chart_type:c.type, column:c.column, label:c.label, summary:chartSummary(c) })),
         dataset_label: 'social listening dataset',
       }),
     });
     const ad = await ar.json();
-    if (!ar.ok) throw new Error(ad.detail || 'Analysis failed');
+    if (!ar.ok) throw new Error(formatApiError(ad.detail) || 'Analysis failed');
 
     // Step 5: render an interactive board (KPIs + filters + charts)
     _dashCharts = chartConfigs.map(c => ({ type: c.type, column: c.column, label: c.label, series: c.series }));
@@ -1450,6 +1450,48 @@ function buildChartData(cfg, rows) {
     counts = Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, +(v / tot * 100).toFixed(1)]));
   }
   return { type, column, label, measure, counts };
+}
+
+// Turn a FastAPI error detail (string, or array of {loc,msg} validation errors)
+// into a readable single string instead of "[object Object],[object Object]".
+function formatApiError(detail) {
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map(e => {
+      const loc = Array.isArray(e.loc) ? e.loc.join('.') : (e.loc || '');
+      return e.msg ? (loc ? `${loc}: ${e.msg}` : e.msg) : JSON.stringify(e);
+    }).join('; ');
+  }
+  return JSON.stringify(detail);
+}
+
+// Derive a compact numeric summary dict from a built chart object, for the
+// /api/analyse LLM prompt (backend expects chart.summary as a plain object).
+function chartSummary(c) {
+  if (c.wordFreq) {
+    const top = c.wordFreq.slice(0, 15).reduce((o, w) => (o[w.word] = w.count, o), {});
+    return { top_words: top, total_rows: (c.rows || []).length };
+  }
+  if (c.twoDim && c.matrix) {
+    const totals = {};
+    c.scats.forEach(s => totals[s] = (c.matrix[s] || []).reduce((a, b) => a + b, 0));
+    return { measure: c.measure, categories: c.xcats, by_series: totals };
+  }
+  if (c.datasets) {   // multiline over time
+    const totals = {};
+    c.datasets.forEach(d => totals[d.label] = d.data.reduce((a, b) => a + b, 0));
+    return { measure: c.measure, points: (c.labels || []).length, by_series: totals };
+  }
+  if (c.timeSeries) {
+    const v = c.timeSeries.values || [];
+    return { measure: c.measure, points: v.length, total: v.reduce((a, b) => a + b, 0) };
+  }
+  if (c.counts) {
+    const total = Object.values(c.counts).reduce((a, b) => a + b, 0);
+    return { measure: c.measure, total, counts: c.counts };
+  }
+  return { note: 'no summary available' };
 }
 
 // ── Data helpers ──────────────────────────────────────────────────────────────
