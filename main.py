@@ -823,7 +823,10 @@ async def save_dashboard(body: SaveDashboardRequest, user: Dict[str, Any] = Depe
         "name": (body.name or "").strip() or "Untitled dashboard",
         "config": body.config or {},
         "columns": sdf.columns.tolist(),
-        "rows": sdf.values.tolist(),
+        # Store rows as list-of-dicts (keyed by column name) to match
+        # /api/result-data. The dashboard chart code reads row[columnName],
+        # so a positional array-of-arrays snapshot renders every chart blank.
+        "rows": sdf.to_dict("records"),
     }
     res = await _sb_request("POST", "dashboards", data=payload, prefer="return=representation")
     saved = res[0] if isinstance(res, list) and res else (res or {})

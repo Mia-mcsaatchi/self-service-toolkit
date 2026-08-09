@@ -378,7 +378,12 @@ def test_dashboard_save_publish_public(client, monkeypatch):
     r = client.get(f"/api/public/dashboard/{token}")
     assert r.status_code == 200
     assert r.json()["config"]["charts"][0]["column"] == "overall_sentiment"
-    assert len(r.json()["rows"]) == len(SAMPLE_ROWS)
+    rows = r.json()["rows"]
+    assert len(rows) == len(SAMPLE_ROWS)
+    # Rows must be dicts keyed by column name (not positional arrays), so the
+    # dashboard chart code that reads row[columnName] renders real data.
+    assert isinstance(rows[0], dict)
+    assert "overall_sentiment" in rows[0]
 
 
 def test_dashboard_share_with_colleague(monkeypatch):
