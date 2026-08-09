@@ -579,6 +579,14 @@
 
         <div class="chart-grid" id="chartGrid"></div>
 
+        <!-- Export to slides -->
+        <div id="exportBar" class="hidden" style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:12px;font-weight:600;color:var(--ink);font-family:'DM Mono',monospace;">Export deck:</span>
+          <button class="btn btn-ghost btn-sm" onclick="exportPptxDeck(this)">⬇ PowerPoint</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportHtmlDeck(this)">⬇ HTML</button>
+          <span id="exportStatus" style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;"></span>
+        </div>
+
         <!-- Save / publish / share (Phase C) -->
         <div id="dashboardActions" class="hidden" style="margin-top:16px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -1606,10 +1614,13 @@ function buildWordFrequency(rows, col) {
 }
 
 // ── Render executive summary ──────────────────────────────────────────────────
+let _execSummary = [];   // kept for slide export
+let _dashName = 'Dashboard';  // current dashboard name, for the export deck title
 function renderExecutiveSummary(bullets) {
+  _execSummary = bullets || [];
   const ul = document.getElementById('summaryBullets');
-  ul.innerHTML = (bullets||[]).map(b => '<li>'+b+'</li>').join('');
-  document.getElementById('executiveSummaryWrap').classList.remove('hidden');
+  ul.innerHTML = _execSummary.map(b => '<li>'+b+'</li>').join('');
+  document.getElementById('executiveSummaryWrap').classList.toggle('hidden', !_execSummary.length);
 }
 
 // ── Render charts ─────────────────────────────────────────────────────────────
@@ -1778,6 +1789,152 @@ function setChartType(idx, t) {
   renderDashboard();
 }
 
+// ── Export dashboard to slides (PowerPoint / HTML) ──────────────────────────
+// Gathers exactly what's on the board (respecting filters + chosen chart types)
+// into a deck spec: title, summary bullets, and one slide per chart.
+function gatherDeck() {
+  const cards = [...document.querySelectorAll('#chartGrid .chart-card')];
+  const slides = cards.map(card => {
+    const label = (card.querySelector('.chart-title')?.textContent || 'Chart').trim();
+    const tagline = (card.querySelector('.chart-tagline')?.textContent || '').trim();
+    const canvas = card.querySelector('canvas');
+    if (canvas) return { label, tagline, image: canvas.toDataURL('image/png'), iw: canvas.width, ih: canvas.height };
+    const wc = card.querySelector('.wordcloud-wrap');
+    if (wc) {
+      const words = [...wc.querySelectorAll('span')].map(s => s.textContent.trim()).filter(Boolean);
+      return { label, tagline, textLines: words.length ? [words.join('  ·  ')] : [wc.textContent.trim()] };
+    }
+    const vb = card.querySelector('.verbatims-wrap');
+    if (vb) {
+      const lines = [...vb.querySelectorAll('tbody tr')].map(tr => tr.querySelector('td:last-child')?.textContent.trim()).filter(Boolean);
+      return { label, tagline, textLines: lines.length ? lines : [vb.textContent.trim()] };
+    }
+    return { label, tagline, textLines: [] };
+  });
+  return { title: _dashName || 'Dashboard', summary: (_execSummary || []).slice(), slides };
+}
+
+function deckFilename(ext) {
+  const safe = (_dashName || 'dashboard').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'dashboard';
+  const d = new Date().toISOString().slice(0, 10);
+  return safe + '-' + d + '.' + ext;
+}
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if ([...document.scripts].some(s => s.src === src)) return resolve();
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(); s.onerror = () => reject(new Error('Could not load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function setExportStatus(msg) { const el = document.getElementById('exportStatus'); if (el) el.textContent = msg; }
+
+// Standalone, self-contained HTML deck (opens in any browser; print → PDF).
+function exportHtmlDeck() {
+  try {
+    setExportStatus('Building HTML…');
+    const deck = gatherDeck();
+    const when = new Date().toLocaleDateString();
+    const slideHtml = [];
+    slideHtml.push(
+      '<section class="slide title"><div><h1>' + escapeHtml(deck.title) + '</h1>' +
+      '<p class="sub">M&amp;C Saatchi — Data Team · ' + escapeHtml(when) + '</p></div></section>'
+    );
+    if (deck.summary.length) {
+      slideHtml.push('<section class="slide"><h2>Executive summary</h2><ul>' +
+        deck.summary.map(b => '<li>' + escapeHtml(b) + '</li>').join('') + '</ul></section>');
+    }
+    deck.slides.forEach(s => {
+      const body = s.image
+        ? '<div class="imgwrap"><img src="' + s.image + '" alt=""></div>'
+        : '<ul>' + (s.textLines || []).map(t => '<li>' + escapeHtml(t) + '</li>').join('') + '</ul>';
+      slideHtml.push('<section class="slide"><h2>' + escapeHtml(s.label) + '</h2>' +
+        (s.tagline ? '<p class="tag">' + escapeHtml(s.tagline) + '</p>' : '') + body + '</section>');
+    });
+    const html =
+      '<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(deck.title) + '</title>' +
+      '<style>' +
+      'body{margin:0;font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;background:#f5f3ee;color:#1a1a1a;}' +
+      '.slide{box-sizing:border-box;width:100%;max-width:1000px;aspect-ratio:16/9;margin:24px auto;background:#fff;border:1px solid #e2dfd8;border-radius:14px;padding:48px 56px;box-shadow:0 4px 20px rgba(0,0,0,.06);display:flex;flex-direction:column;}' +
+      '.slide.title{align-items:flex-start;justify-content:center;}' +
+      '.slide.title h1{font-size:44px;margin:0 0 8px;}' +
+      '.sub{color:#6b6760;font-size:16px;margin:0;}' +
+      'h2{font-size:26px;margin:0 0 6px;}' +
+      '.tag{color:#6b6760;font-size:15px;margin:0 0 16px;font-style:italic;}' +
+      'ul{font-size:18px;line-height:1.6;margin:8px 0 0;padding-left:22px;}' +
+      '.imgwrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;margin-top:8px;}' +
+      '.imgwrap img{max-width:100%;max-height:100%;object-fit:contain;}' +
+      '@media print{body{background:#fff;}.slide{box-shadow:none;border:none;margin:0;page-break-after:always;border-radius:0;max-width:none;}}' +
+      '</style></head><body>' + slideHtml.join('') + '</body></html>';
+    downloadBlob(deckFilename('html'), new Blob([html], { type: 'text/html' }));
+    setExportStatus('✓ HTML downloaded');
+  } catch (e) { setExportStatus('✕ ' + e.message); }
+}
+
+// Editable PowerPoint via PptxGenJS (loaded on demand).
+async function exportPptxDeck(btn) {
+  try {
+    if (btn) btn.disabled = true;
+    setExportStatus('Loading PowerPoint engine…');
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js');
+    const Lib = window.PptxGenJS || window.pptxgen;
+    if (!Lib) throw new Error('PowerPoint engine unavailable.');
+    setExportStatus('Building slides…');
+    const deck = gatherDeck();
+    const pptx = new Lib();
+    pptx.layout = 'LAYOUT_WIDE';               // 13.33 × 7.5 in
+    const W = 13.33, accent = '1E40AF', ink = '1A1A1A', muted = '6B6760';
+
+    // Title slide
+    let s = pptx.addSlide();
+    s.addText(deck.title, { x: 0.7, y: 2.6, w: W - 1.4, h: 1.2, fontSize: 40, bold: true, color: ink });
+    s.addText('M&C Saatchi — Data Team  ·  ' + new Date().toLocaleDateString(),
+      { x: 0.7, y: 3.8, w: W - 1.4, h: 0.5, fontSize: 16, color: muted });
+
+    // Executive summary
+    if (deck.summary.length) {
+      s = pptx.addSlide();
+      s.addText('Executive summary', { x: 0.7, y: 0.5, w: W - 1.4, h: 0.7, fontSize: 26, bold: true, color: ink });
+      s.addText(deck.summary.map(b => ({ text: b, options: { bullet: true, breakLine: true } })),
+        { x: 0.9, y: 1.5, w: W - 1.8, h: 5.3, fontSize: 18, color: ink, lineSpacingMultiple: 1.3 });
+    }
+
+    // One slide per chart
+    deck.slides.forEach(sl => {
+      const slide = pptx.addSlide();
+      slide.addText(sl.label, { x: 0.7, y: 0.4, w: W - 1.4, h: 0.6, fontSize: 22, bold: true, color: ink });
+      if (sl.tagline) slide.addText(sl.tagline, { x: 0.7, y: 1.0, w: W - 1.4, h: 0.5, fontSize: 14, italic: true, color: muted });
+      if (sl.image) {
+        const maxW = 12, maxH = 5.3, ratio = (sl.iw && sl.ih) ? sl.iw / sl.ih : 16 / 9;
+        let w = maxW, h = w / ratio;
+        if (h > maxH) { h = maxH; w = h * ratio; }
+        slide.addImage({ data: sl.image, x: (W - w) / 2, y: 1.5, w, h });
+      } else if ((sl.textLines || []).length) {
+        slide.addText(sl.textLines.map(t => ({ text: t, options: { bullet: true, breakLine: true } })),
+          { x: 0.9, y: 1.6, w: W - 1.8, h: 5.2, fontSize: 16, color: ink, lineSpacingMultiple: 1.2 });
+      }
+    });
+
+    const blob = await pptx.write({ outputType: 'blob' });
+    downloadBlob(deckFilename('pptx'), blob);
+    setExportStatus('✓ PowerPoint downloaded');
+  } catch (e) {
+    setExportStatus('✕ ' + e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ── Interactive dashboard: KPI tiles, filters, manual chart picker ───────────
 function renderDashboard() {
   const filtered = applyFilters(_allRows);
@@ -1786,6 +1943,7 @@ function renderDashboard() {
   _chartInstances = {};
   const built = _dashCharts.map((cfg, i) => { const b = buildChartData(cfg, filtered); b.idx = i; return b; });
   renderCharts(built, _dashTaglines, filtered);
+  document.getElementById('exportBar').classList.toggle('hidden', !_dashCharts.length);
 }
 
 function applyFilters(rows) {
@@ -1953,7 +2111,7 @@ async function saveDashboard() {
   try {
     const r = await api('/api/dashboards', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, config: { charts: _dashCharts, taglines: _dashTaglines } }),
+      body: JSON.stringify({ name, config: { charts: _dashCharts, taglines: _dashTaglines, summary: _execSummary } }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Save failed');
@@ -2060,8 +2218,9 @@ async function openDashboard(id) {
     step4.classList.add('active');
     document.getElementById('analyticsInputPanel').classList.add('hidden');
     document.getElementById('dashboardOutput').classList.remove('hidden');
-    document.getElementById('executiveSummaryWrap').classList.add('hidden');
+    renderExecutiveSummary((d.config && d.config.summary) || []);
     step4.querySelector('.step-title').textContent = d.name;
+    _dashName = d.name || 'Dashboard';
     buildFilterBar();
     buildManualPicker();
     renderDashboard();
@@ -2104,7 +2263,9 @@ async function enterViewMode(token) {
     _dashTaglines = (d.config && d.config.taglines) || {};
     step4.querySelector('.step-title').textContent = d.name || 'Shared dashboard';
     step4.querySelector('.step-subtitle').textContent = 'Read-only shared dashboard';
+    _dashName = d.name || 'Shared dashboard';
     document.getElementById('dashboardOutput').classList.remove('hidden');
+    renderExecutiveSummary((d.config && d.config.summary) || []);
     buildFilterBar();
     renderDashboard();
   } catch (e) {
