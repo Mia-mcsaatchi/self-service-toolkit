@@ -323,6 +323,17 @@ def set_api_key(body: ApiKeyRequest, user: Dict[str, Any] = Depends(get_current_
     _state_for(user)["api_key"] = key
     return {"message": "API key set"}
 
+@app.get("/")
+def root():
+    """Friendly landing for the bare backend URL (the app itself is on GitHub Pages)."""
+    return {
+        "service": "Self-Service Toolkit API",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/api/health",
+        "app": "https://mia-mcsaatchi.github.io/self-service-toolkit/",
+    }
+
 @app.get("/api/health")
 def health():
     """Public liveness probe — intentionally unauthenticated."""
