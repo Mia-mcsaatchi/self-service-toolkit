@@ -202,6 +202,13 @@ class RowData(BaseModel):
     columns: List[str]
     rows: List[List[Any]]
 
+class SuggestPromptRequest(BaseModel):
+    field_name: str
+    reads_from: List[str] = []
+    is_cluster: bool = False
+    samples: List[str] = []       # a few sample values from the source column(s)
+    columns: List[str] = []
+
 # ---------------------------------------------------------------------------
 # Analytics models
 # ---------------------------------------------------------------------------
@@ -693,6 +700,61 @@ async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depend
         return result
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to interpret intent")
+
+
+# ---------------------------------------------------------------------------
+# AI-suggested prompt — draft a tagging prompt from just the field name
+# ---------------------------------------------------------------------------
+
+@app.post("/api/suggest-prompt")
+async def suggest_prompt(body: SuggestPromptRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Draft a ready-to-run tagging prompt from the field name (+ optional source
+    columns and sample values), so non-technical users start from a filled box."""
+    api_key = _state_for(user).get("api_key")
+    name = (body.field_name or "").strip() or "the field"
+    reads = ", ".join([c for c in body.reads_from if c]) or "the source text"
+    sample_block = "\n".join(
+        f"- {str(s)[:280]}" for s in body.samples[:6] if str(s).strip()
+    ) or "(no samples provided)"
+
+    if body.is_cluster:
+        shape = (
+            "This is a CLUSTER field that produces several columns from one call. Write the instruction so "
+            "the AI returns a JSON object whose keys are the requested output columns "
+            f"({name}), describing each key briefly."
+        )
+    else:
+        shape = (
+            "This is a SINGLE field producing one short value per row. Where sensible, constrain the answer "
+            "to a small fixed set of labels, and say to use 'unsure' when the text gives no basis to decide."
+        )
+
+    prompt = (
+        "You write instructions for an AI that tags each row of a spreadsheet for a non-technical analyst.\n"
+        f'The analyst wants an output field called: "{name}".\n'
+        f"It should be derived from these source column(s): {reads}.\n"
+        f"Sample values from the data:\n{sample_block}\n\n"
+        f"{shape}\n\n"
+        "Write ONE clear, concise instruction (1-3 sentences, max ~45 words) that can be handed to the AI "
+        "as-is to produce this field for every row. Be specific about the allowed outputs. Do not restate "
+        "the field name as a prefix, do not include example rows, and add no preamble.\n"
+        'Return ONLY JSON: {"prompt": "<the instruction>"}'
+    )
+
+    semaphore = asyncio.Semaphore(1)
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        raw = await _call_openai(
+            session, semaphore, prompt,
+            model="gpt-4o-mini", response_json=True, max_tokens=200, api_key=api_key,
+        )
+    try:
+        suggestion = (json.loads(raw).get("prompt") or "").strip()
+    except Exception:
+        suggestion = ""
+    if not suggestion:
+        raise HTTPException(status_code=502, detail="Could not generate a suggestion — please try again.")
+    return {"prompt": suggestion}
 
 
 # ---------------------------------------------------------------------------

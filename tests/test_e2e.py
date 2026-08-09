@@ -185,7 +185,36 @@ def test_xlsx_export_roundtrips(client):
 
 
 # --------------------------------------------------------------------------
-# 3. Auth layer (independent of AUTH_DISABLED used above)
+# 3. AI-suggested prompt
+# --------------------------------------------------------------------------
+def test_suggest_prompt_returns_text(client, monkeypatch):
+    async def fake_call(session, semaphore, prompt, **kwargs):
+        # sanity: the field name is passed into the LLM prompt
+        assert "urgency" in prompt
+        return json.dumps({"prompt": "Rate urgency as high, medium, low, or none."})
+
+    monkeypatch.setattr(main, "_call_openai", fake_call)
+    r = client.post("/api/suggest-prompt", json={
+        "field_name": "urgency",
+        "reads_from": ["translated_text"],
+        "is_cluster": False,
+        "samples": ["Charging is painfully slow.", "Love the range."],
+    })
+    assert r.status_code == 200, r.text
+    assert "urgency" in r.json()["prompt"].lower()
+
+
+def test_suggest_prompt_empty_llm_is_502(client, monkeypatch):
+    async def empty(session, semaphore, prompt, **kwargs):
+        return "{}"
+
+    monkeypatch.setattr(main, "_call_openai", empty)
+    r = client.post("/api/suggest-prompt", json={"field_name": "topic"})
+    assert r.status_code == 502
+
+
+# --------------------------------------------------------------------------
+# 4. Auth layer (independent of AUTH_DISABLED used above)
 # --------------------------------------------------------------------------
 def test_auth_rejects_and_isolates(monkeypatch):
     monkeypatch.setattr(main, "AUTH_DISABLED", False)

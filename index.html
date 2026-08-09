@@ -672,6 +672,50 @@ function addField() {
   document.getElementById('fieldsContainer').appendChild(div);
 }
 
+// ── AI-suggested prompt for a field ─────────────────────────────────────────
+async function suggestPrompt(id) {
+  const card = document.getElementById('field-' + id);
+  if (!card) return;
+  const nameEl = document.getElementById('fname-' + id);
+  const name = (nameEl?.value || '').trim();
+  if (!name) {
+    alert('Name the field first (e.g. "sentiment", "urgency", "topic") — the suggestion is based on it.');
+    nameEl?.focus();
+    return;
+  }
+
+  const isCluster = card.querySelector('.seg-active-purple') !== null;
+  const reads = Array.from(card.querySelectorAll('#freads-' + id + ' input[type=checkbox]:checked'))
+    .map(cb => cb.value);
+
+  // A few sample values from the chosen source column(s), else the first column
+  const rows = (state.parsedData && state.parsedData.rows) || [];
+  const sampleCols = reads.length ? reads : state.columns.slice(0, 1);
+  const samples = [];
+  for (const r of rows.slice(0, 6)) {
+    const parts = sampleCols.map(c => r[c]).filter(v => v != null && String(v).trim());
+    if (parts.length) samples.push(parts.join(' | '));
+  }
+
+  const btn = card.querySelector('.suggest-btn');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '✨ Thinking…'; }
+  try {
+    const r = await api('/api/suggest-prompt', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field_name: name, reads_from: reads, is_cluster: isCluster, samples, columns: state.columns }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Suggestion failed');
+    const ta = document.getElementById('fprompt-' + id);
+    if (ta) { ta.value = d.prompt; ta.focus(); }
+  } catch (e) {
+    alert('Could not suggest a prompt: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig || '✨ Suggest prompt'; }
+  }
+}
+
 function buildFieldCard(id, outputType, mode) {
   const isCluster = outputType === 'cluster';
   const isConditional = mode === 'conditional';
@@ -725,7 +769,9 @@ function buildFieldCard(id, outputType, mode) {
 
     <div id="default-block-${id}" class="${isConditional ? 'hidden' : ''}">
       <div class="form-group">
-        <label>Prompt <span style="font-weight:400;opacity:0.6">(runs on every row)</span></label>
+        <label>Prompt <span style="font-weight:400;opacity:0.6">(runs on every row)</span>
+          <button type="button" class="suggest-btn btn btn-ghost btn-sm" style="float:right;font-size:11px;padding:3px 9px;" onclick="suggestPrompt(${id})">✨ Suggest prompt</button>
+        </label>
         <select class="prompt-bank-select" onchange="applyPromptBank(${id}, this)">${bankOptions}</select>
         <textarea id="fprompt-${id}" placeholder="${isCluster
           ? 'Return a JSON object with keys matching the column names above.'
