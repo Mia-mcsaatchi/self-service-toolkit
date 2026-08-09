@@ -385,18 +385,7 @@
       </div>
     </div>
     <div class="step-body">
-      <div id="myDatasetsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
-        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">📁 Your saved datasets</div>
-        <div id="myDatasetsList"></div>
-      </div>
-      <div id="myDashboardsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
-        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">📊 Your dashboards</div>
-        <div id="myDashboardsList"></div>
-      </div>
-      <div id="sharedDashboardsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
-        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">🔗 Shared with you</div>
-        <div id="sharedDashboardsList"></div>
-      </div>
+      <!-- Saved datasets / dashboards / shared now live in the account panel (top-right). -->
       <div class="tabs">
         <button class="tab active" onclick="switchTab('file')">Upload file</button>
         <button class="tab" onclick="switchTab('gsheet')">Google Sheet</button>
@@ -2165,44 +2154,10 @@ async function shareDash() {
   } catch (e) { status.textContent = '✕ ' + e.message; }
 }
 
-async function loadMyDashboards() {
-  if (!_storageEnabled) return;
-  try {
-    const r = await api('/api/dashboards');
-    if (!r.ok) return;
-    const list = (await r.json()).dashboards || [];
-    const panel = document.getElementById('myDashboardsPanel');
-    if (!list.length) { panel.classList.add('hidden'); return; }
-    document.getElementById('myDashboardsList').innerHTML = list.map(d =>
-      '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
-        '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(d.name)+
-          (d.is_public ? ' <span style="font-size:9px;color:var(--blue);border:1px solid var(--border);border-radius:999px;padding:0 5px;">public</span>' : '')+'</div>' +
-          '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">'+(d.created_at||'').slice(0,10)+'</div></div>' +
-        '<div style="display:flex;gap:6px;flex-shrink:0;">' +
-          '<button class="btn btn-ghost btn-sm" onclick="openDashboard(\''+d.id+'\')">Open</button>' +
-          '<button class="btn btn-danger btn-sm" onclick="deleteDashboard(\''+d.id+'\')">Delete</button>' +
-        '</div></div>').join('');
-    panel.classList.remove('hidden');
-  } catch {}
-}
-
-async function loadSharedDashboards() {
-  if (!_storageEnabled) return;
-  try {
-    const r = await api('/api/shared-dashboards');
-    if (!r.ok) return;
-    const list = (await r.json()).dashboards || [];
-    const panel = document.getElementById('sharedDashboardsPanel');
-    if (!list.length) { panel.classList.add('hidden'); return; }
-    document.getElementById('sharedDashboardsList').innerHTML = list.map(d =>
-      '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
-        '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);">'+escapeHtml(d.name)+'</div>' +
-          '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">from '+escapeHtml(d.owner_email||'a colleague')+'</div></div>' +
-          '<button class="btn btn-ghost btn-sm" onclick="openDashboard(\''+d.id+'\')">Open</button>' +
-      '</div>').join('');
-    panel.classList.remove('hidden');
-  } catch {}
-}
+// The saved lists now live in the account modal; these keep it fresh for any
+// caller (save / delete) and refresh it if it's open.
+async function loadMyDashboards() { if (_storageEnabled) refreshAccountLists(); }
+async function loadSharedDashboards() { if (_storageEnabled) refreshAccountLists(); }
 
 async function openDashboard(id) {
   try {
@@ -2284,42 +2239,15 @@ async function initFeatures() {
   } catch { _storageEnabled = false; }
   const row = document.getElementById('saveDatasetRow');
   row.classList.remove('hidden');
-  if (_storageEnabled) {
-    loadMyDatasets();
-    loadMyDashboards();
-    loadSharedDashboards();
-  } else {
+  if (!_storageEnabled) {
     // Make the "not set up" state visible instead of silently hiding it.
     row.innerHTML = '<span style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">💾 Saving to your account isn\'t switched on yet — the backend needs SUPABASE_SERVICE_ROLE_KEY and the datasets table (run supabase/schema.sql). See SUPABASE_SETUP.md.</span>';
-    document.getElementById('myDatasetsPanel').classList.add('hidden');
   }
+  // Saved datasets / dashboards / shared are shown in the account panel, which
+  // fetches fresh each time it's opened — no need to preload them here.
 }
 
-async function loadMyDatasets() {
-  if (!_storageEnabled) return;
-  try {
-    const r = await api('/api/datasets');
-    if (!r.ok) return;
-    const d = await r.json();
-    renderMyDatasets(d.datasets || []);
-  } catch {}
-}
-
-function renderMyDatasets(list) {
-  const panel = document.getElementById('myDatasetsPanel');
-  if (!list.length) { panel.classList.add('hidden'); return; }
-  document.getElementById('myDatasetsList').innerHTML = list.map(ds => {
-    const when = (ds.created_at || '').slice(0, 10);
-    return '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
-      '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(ds.name)+'</div>' +
-      '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">'+(ds.row_count||0)+' rows · '+when+'</div></div>' +
-      '<div style="display:flex;gap:6px;flex-shrink:0;">' +
-        '<button class="btn btn-ghost btn-sm" onclick="loadSavedDataset(\''+ds.id+'\')">Load</button>' +
-        '<button class="btn btn-danger btn-sm" onclick="deleteSavedDataset(\''+ds.id+'\')">Delete</button>' +
-      '</div></div>';
-  }).join('');
-  panel.classList.remove('hidden');
-}
+async function loadMyDatasets() { if (_storageEnabled) refreshAccountLists(); }
 
 async function saveDataset() {
   const name = (document.getElementById('saveDatasetName').value || '').trim();
