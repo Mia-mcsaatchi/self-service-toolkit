@@ -611,7 +611,7 @@
 // talk to the backend running on your machine; otherwise use the hosted one.
 // ⚠ DEPLOY: set PROD_BACKEND to your hosted backend URL (e.g. the Render URL,
 // no trailing slash). See DEPLOY.md.
-const PROD_BACKEND = 'https://self-service-toolkit.onrender.com';
+const PROD_BACKEND = 'https://self-service-toolkit.onrender.com';  // Render backend
 const _isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
 const BACKEND = _isLocal ? 'http://127.0.0.1:8000' : PROD_BACKEND;
 const state = { columns: [], parsedData: null, workbook: null };
