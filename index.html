@@ -1465,7 +1465,15 @@ function renderCharts(charts, taglines, allRows) {
     if (chart.type === 'wordcloud') {
       const wf = chart.wordFreq || buildWordFrequency(allRows, chart.column);
       if (!wf.length) {
-        card.innerHTML = head + '<div class="wordcloud-wrap" style="color:var(--ink-muted);font-size:11px;text-align:center;padding:0 12px;">No words to show for “'+escapeHtml(chart.column)+'”. Pick a free-text column (e.g. the verbatim / comment column).</div>';
+        const hasTextUnfiltered = buildWordFrequency(_allRows, chart.column).length > 0;
+        const msg = _allRows.length === 0
+          ? 'No dashboard data loaded — click “Generate dashboard” first.'
+          : (allRows.length === 0
+              ? 'No rows match the current filters — clear a filter to see the word cloud.'
+              : (hasTextUnfiltered
+                  ? 'No rows match the current filters.'
+                  : 'No words to show for “'+escapeHtml(chart.column)+'”. Pick a free-text column (e.g. the verbatim / comment column).'));
+        card.innerHTML = head + '<div class="wordcloud-wrap" style="color:var(--ink-muted);font-size:11px;text-align:center;padding:0 12px;">'+msg+'</div>';
         grid.appendChild(card);
         return;
       }
