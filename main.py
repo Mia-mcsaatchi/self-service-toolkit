@@ -676,6 +676,20 @@ def _get_export_df(st: Dict[str, Any]) -> pd.DataFrame:
     return df
 
 
+@app.get("/api/result-data")
+def result_data(user: Dict[str, Any] = Depends(get_current_user)):
+    """Return the current results as clean JSON (columns + list-of-dicts rows).
+
+    The dashboard uses this instead of round-tripping through CSV, which can
+    mis-parse free-text/AI columns that contain commas, quotes, or newlines.
+    """
+    df = _get_export_df(_state_for(user))
+    if df is None:
+        raise HTTPException(status_code=400, detail="No data — run the pipeline or load a dataset first.")
+    sdf = _safe_df(df)
+    return {"columns": sdf.columns.tolist(), "rows": sdf.to_dict("records")}
+
+
 @app.get("/api/export/csv")
 def export_csv(user: Dict[str, Any] = Depends(get_current_user)):
     from fastapi.responses import Response as FastAPIResponse

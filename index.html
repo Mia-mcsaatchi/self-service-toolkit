@@ -1265,11 +1265,11 @@ async function generateDashboard() {
   _chartInstances = {};
 
   try {
-    // Step 1: fetch full CSV result
+    // Step 1: fetch full result as clean JSON (no fragile CSV round-trip)
     setLoadingMsg('Loading data…');
-    const csvRes = await api('/api/export/csv');
-    if (!csvRes.ok) throw new Error('Could not fetch result data — run the pipeline first.');
-    _allRows = Papa.parse(await csvRes.text(), { header:true, skipEmptyLines:true }).data;
+    const dataRes = await api('/api/result-data');
+    if (!dataRes.ok) throw new Error('Could not fetch result data — run the pipeline first.');
+    _allRows = (await dataRes.json()).rows || [];
 
     // Step 2: LLM interprets intent into chart configs
     setLoadingMsg('Interpreting your request…');
@@ -1695,9 +1695,15 @@ async function initFeatures() {
     const r = await api('/api/me');
     if (r.ok) { const me = await r.json(); _storageEnabled = !!me.storage_enabled; }
   } catch { _storageEnabled = false; }
-  document.getElementById('saveDatasetRow').classList.toggle('hidden', !_storageEnabled);
-  if (_storageEnabled) loadMyDatasets();
-  else document.getElementById('myDatasetsPanel').classList.add('hidden');
+  const row = document.getElementById('saveDatasetRow');
+  row.classList.remove('hidden');
+  if (_storageEnabled) {
+    loadMyDatasets();
+  } else {
+    // Make the "not set up" state visible instead of silently hiding it.
+    row.innerHTML = '<span style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">💾 Saving to your account isn\'t switched on yet — the backend needs SUPABASE_SERVICE_ROLE_KEY and the datasets table (run supabase/schema.sql). See SUPABASE_SETUP.md.</span>';
+    document.getElementById('myDatasetsPanel').classList.add('hidden');
+  }
 }
 
 async function loadMyDatasets() {
@@ -1741,7 +1747,7 @@ async function saveDataset() {
     status.textContent = '✓ Saved (' + (d.row_count || 0) + ' rows)';
     document.getElementById('saveDatasetName').value = '';
     loadMyDatasets();
-  } catch (e) { status.textContent = '✕ ' + e.message; }
+  } catch (e) { status.textContent = '✕ ' + e.message; alert('Save failed: ' + e.message); }
 }
 
 async function loadSavedDataset(id) {

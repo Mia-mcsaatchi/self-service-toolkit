@@ -173,6 +173,21 @@ def test_full_pipeline_writes_expected_columns(client):
     assert (out.loc[~neg_mask.values, "neg_reason"] == "n/a").all()
 
 
+def test_result_data_json_survives_messy_text(client):
+    # A tag column with commas, quotes and newlines — the case CSV parsing breaks on
+    df = _sample_df()
+    df["key_quote"] = ['He said "great, but slow"\nreally', 'x', 'y', 'z', 'a', 'b']
+    client.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()})
+    r = client.get("/api/result-data")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["columns"][-1] == "key_quote"
+    assert len(body["rows"]) == len(SAMPLE_ROWS)
+    # the messy first value comes back intact, and translated_text is untouched
+    assert 'great, but slow' in body["rows"][0]["key_quote"]
+    assert body["rows"][0]["translated_text"].startswith("Replacing the stock tyres")
+
+
 def test_xlsx_export_roundtrips(client):
     _load_sample(client)
     client.post("/api/upload-config", json=CONFIG)
