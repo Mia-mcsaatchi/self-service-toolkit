@@ -228,6 +228,8 @@
     .chart-controls { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 2; }
     .chart-toggle, .chart-remove { background: var(--surface2); border: 1px solid var(--border); color: var(--ink-muted); cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 5px; font-family: 'DM Mono', monospace; }
     .chart-toggle:hover { border-color: var(--border-strong); color: var(--ink); }
+    .chart-type-select { background: var(--surface2); border: 1px solid var(--border); color: var(--ink-muted); cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 6px; border-radius: 5px; font-family: 'DM Mono', monospace; width: auto; min-width: 0; }
+    .chart-type-select:hover { border-color: var(--border-strong); color: var(--ink); }
     .chart-remove:hover { color: var(--red); border-color: var(--red-border); }
     .analytics-loading { text-align: center; padding: 32px; color: var(--ink-muted); font-size: 12px; font-family: 'DM Mono', monospace; }
     .analytics-loading .spinner { margin: 0 auto 12px; width: 20px; height: 20px; }
@@ -262,8 +264,8 @@
     <div class="login-info" id="loginInfo" style="display:none;"></div>
 
     <div class="login-tabs" style="display:flex;gap:6px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:4px;">
-      <button type="button" id="tabMagic" class="login-tab" onclick="setLoginMode('magic')" style="flex:1;border:none;background:transparent;color:var(--ink-muted);border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Magic link</button>
-      <button type="button" id="tabPassword" class="login-tab" onclick="setLoginMode('password')" style="flex:1;border:none;background:var(--blue);color:#fff;border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Password</button>
+      <button type="button" id="tabMagic" class="login-tab" onclick="setLoginMode('magic')" style="flex:1;border:none;background:var(--blue);color:#fff;border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Magic link</button>
+      <button type="button" id="tabPassword" class="login-tab" onclick="setLoginMode('password')" style="flex:1;border:none;background:transparent;color:var(--ink-muted);border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Password</button>
     </div>
 
     <div class="form-group">
@@ -271,17 +273,17 @@
       <input type="text" id="loginEmail" placeholder="you@mcsaatchi.com" autocomplete="email">
     </div>
 
-    <div class="form-group" id="passwordGroup">
+    <div class="form-group" id="passwordGroup" style="display:none;">
       <label>Password</label>
       <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
     </div>
 
-    <button class="btn btn-primary" id="loginPrimaryBtn" style="width:100%;justify-content:center;" onclick="handleLogin()">Sign in</button>
-    <button class="btn btn-ghost" id="loginSignupBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="handleSignup()">Create an account</button>
+    <button class="btn btn-primary" id="loginPrimaryBtn" style="width:100%;justify-content:center;" onclick="handleLogin()">Send login link</button>
+    <button class="btn btn-ghost" id="loginSignupBtn" style="width:100%;justify-content:center;display:none;margin-top:8px;" onclick="handleSignup()">Create an account</button>
 
     <div class="login-note" id="loginNote">
-      First time? Enter your @mcsaatchi.com email and a password, then <b>Create an account</b> to get started.<br>
-      Already have an account? Just <b>Sign in</b>. Prefer no password? Use the <b>Magic link</b> tab.
+      Sign in with your @mcsaatchi.com email.<br>
+      We'll email you a secure one-click login link — no password needed.
     </div>
   </div>
 </div>
@@ -1636,7 +1638,15 @@ function renderCharts(charts, taglines, allRows) {
     const safeId = 'chart-' + idx + '-' + chart.type;
     const measure = chart.measure || 'count';
     const supportsMeasure = chart.twoDim || ['bar','hbar','pie','donut'].includes(chart.type);
+    const cfg = _dashCharts[idx] || chart;
+    const alts = altTypesFor(cfg);
+    const typeSelect = alts.length > 1
+      ? '<select class="chart-type-select" title="Chart type / layout" onchange="setChartType('+idx+', this.value)">' +
+          alts.map(t => '<option value="'+t+'"'+(t===cfg.type?' selected':'')+'>'+TYPE_LABEL[t]+'</option>').join('') +
+        '</select>'
+      : '';
     const controls =
+      typeSelect +
       (supportsMeasure ? '<button class="chart-toggle" title="Count / percent" onclick="toggleMeasure('+idx+')">'+(measure==='percent'?'%':'#')+'</button>' : '') +
       (chart.twoDim ? '<button class="chart-toggle" title="Stacked / grouped" onclick="toggleBarmode('+idx+')">'+(chart.barmode==='grouped'?'▦':'▤')+'</button>' : '') +
       (_viewMode ? '' : '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>');
@@ -1745,6 +1755,28 @@ function renderCharts(charts, taglines, allRows) {
 
 function toggleMeasure(idx) { const c = _dashCharts[idx]; c.measure = (c.measure === 'percent') ? 'count' : 'percent'; renderDashboard(); }
 function toggleBarmode(idx) { const c = _dashCharts[idx]; c.barmode = (c.barmode === 'grouped') ? 'stacked' : 'grouped'; renderDashboard(); }
+
+// Per-chart type / layout switcher — works live on the board and in shared view.
+const TYPE_LABEL = { bar:'Bar ↕', hbar:'Bar ↔', line:'Line', pie:'Pie', donut:'Donut', wordcloud:'Words', verbatims:'Quotes' };
+
+// Which chart types a given chart config can switch to without breaking its data.
+function altTypesFor(cfg) {
+  const t = cfg.type || 'bar';
+  if (t === 'wordcloud' || t === 'verbatims') return ['wordcloud', 'verbatims'];
+  const hasSeries = !!cfg.series;
+  const types = ['bar', 'hbar'];              // vertical / horizontal bars, both dimensions
+  if (!hasSeries) types.push('pie', 'donut'); // parts-of-whole only for a single dimension
+  if (t === 'line' || isLikelyDatetime(cfg.column, _allRows)) types.push('line');
+  return types;
+}
+
+function setChartType(idx, t) {
+  const c = _dashCharts[idx];
+  if (!c) return;
+  c.type = t;
+  if ((t === 'bar' || t === 'hbar') && c.series && !c.barmode) c.barmode = 'stacked';
+  renderDashboard();
+}
 
 // ── Interactive dashboard: KPI tiles, filters, manual chart picker ───────────
 function renderDashboard() {
@@ -2188,7 +2220,7 @@ function renderWordCloud(containerId, wordFreq) {
 // ── Login (Supabase magic link) ─────────────────────────────────────────────
 
 const MCSAATCHI_DOMAIN = 'mcsaatchi.com';
-let _loginMode = 'password';    // 'magic' | 'password' — password is the default (reliable, no email dependency)
+let _loginMode = 'magic';       // 'magic' | 'password' — magic link is the default
 let _authMethod = 'magic link'; // how the current user signed in (for the account panel)
 
 // Switch the login form between magic-link and email+password modes.
