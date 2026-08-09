@@ -1,0 +1,5 @@
+# Test/dev dependencies (not needed to run the app).
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest -q
+pytest==8.3.3
+httpx==0.27.2
