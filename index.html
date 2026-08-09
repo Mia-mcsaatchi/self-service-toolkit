@@ -225,8 +225,10 @@
     .filter-item label { font-size: 10px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'DM Mono', monospace; }
     .filter-item select, .filter-item input { min-width: 130px; padding: 6px 10px; font-size: 12px; width: auto; }
     .chart-card { position: relative; }
-    .chart-remove { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--ink-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 3px 7px; border-radius: 5px; z-index: 2; }
-    .chart-remove:hover { background: var(--surface2); color: var(--red); }
+    .chart-controls { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 2; }
+    .chart-toggle, .chart-remove { background: var(--surface2); border: 1px solid var(--border); color: var(--ink-muted); cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 5px; font-family: 'DM Mono', monospace; }
+    .chart-toggle:hover { border-color: var(--border-strong); color: var(--ink); }
+    .chart-remove:hover { color: var(--red); border-color: var(--red-border); }
     .analytics-loading { text-align: center; padding: 32px; color: var(--ink-muted); font-size: 12px; font-family: 'DM Mono', monospace; }
     .analytics-loading .spinner { margin: 0 auto 12px; width: 20px; height: 20px; }
     .analytics-loading p { margin-top: 8px; }
@@ -1358,38 +1360,65 @@ function isLikelyDatetime(col, rows) {
 
 // ── Build chart data from config + rows ───────────────────────────────────────
 function buildChartData(cfg, rows) {
-  const { type, column, label } = cfg;
+  const { type, column, series, label } = cfg;
+  const measure = cfg.measure || 'count';
+  const barmode = cfg.barmode || 'stacked';
+
   if (type === 'wordcloud' || type === 'verbatims') {
     const wf = buildWordFrequency(rows, column);
-    return { type, column, label,
-      summary: { top_words: wf.slice(0,20).map(w=>w.word), total: rows.length },
-      wordFreq: wf, rows };
+    return { type, column, label, wordFreq: wf, rows };
   }
-  if (type === 'line') {
-    const ts = buildTimeSeries(rows, column);
-    return { type, column, label,
-      summary: { labels: ts.labels, values: ts.values, total: rows.length },
-      timeSeries: ts };
+
+  // Two dimensions on a date axis -> multi-line over time (e.g. sentiment by date)
+  if (series && type === 'line') {
+    const scats = topCategories(rows, series, 8);
+    const dateSet = {}, perSeries = {};
+    scats.forEach(s => perSeries[s] = {});
+    for (const row of rows) {
+      const d = new Date(row[column]); if (isNaN(d)) continue;
+      const s = (row[series] || '').trim(); if (scats.indexOf(s) < 0) continue;
+      const k = d.toISOString().slice(0, 10);
+      dateSet[k] = 1; perSeries[s][k] = (perSeries[s][k] || 0) + 1;
+    }
+    const labels = Object.keys(dateSet).sort();
+    const datasets = scats.map(s => ({ label: s, data: labels.map(k => perSeries[s][k] || 0) }));
+    return { type: 'multiline', column, series, label, measure, labels, datasets, scats };
   }
-  if (type === 'stacked') {
-    const seriesCol = cfg.series;
+
+  // Two-dimension cross-tab bar (e.g. sentiment by country)
+  if (series && (type === 'bar' || type === 'hbar')) {
     const xcats = topCategories(rows, column, 12);
-    const scats = topCategories(rows, seriesCol, 8);
+    const scats = topCategories(rows, series, 8);
     const matrix = {};
     scats.forEach(s => matrix[s] = xcats.map(() => 0));
     for (const row of rows) {
-      const xi = xcats.indexOf((row[column]||'').trim());
-      const si = scats.indexOf((row[seriesCol]||'').trim());
+      const xi = xcats.indexOf((row[column] || '').trim());
+      const si = scats.indexOf((row[series] || '').trim());
       if (xi >= 0 && si >= 0) matrix[scats[si]][xi]++;
     }
-    return { type, column, series: seriesCol, label,
-      summary: { xcats, scats, total: rows.length }, xcats, scats, matrix };
+    let mtx = matrix;
+    if (measure === 'percent') {   // normalise each x category to 100%
+      mtx = {}; scats.forEach(s => mtx[s] = matrix[s].slice());
+      xcats.forEach((_, xi) => {
+        const tot = scats.reduce((a, s) => a + matrix[s][xi], 0) || 1;
+        scats.forEach(s => mtx[s][xi] = +(matrix[s][xi] / tot * 100).toFixed(1));
+      });
+    }
+    return { type, twoDim: true, column, series, label, measure, barmode, xcats, scats, matrix: mtx };
   }
-  // bar, sentiment_bar, hbar, pie, donut
-  const counts = countValues(rows, column);
-  return { type, column, label,
-    summary: { counts, total: rows.length },
-    counts };
+
+  if (type === 'line') {
+    const ts = buildTimeSeries(rows, column);
+    return { type, column, label, measure, timeSeries: ts };
+  }
+
+  // Single dimension: bar / hbar / pie / donut
+  let counts = countValues(rows, column);
+  if (measure === 'percent') {
+    const tot = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+    counts = Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, +(v / tot * 100).toFixed(1)]));
+  }
+  return { type, column, label, measure, counts };
 }
 
 // ── Data helpers ──────────────────────────────────────────────────────────────
@@ -1458,7 +1487,13 @@ function renderCharts(charts, taglines, allRows) {
     card.className = 'chart-card';
     const tagline = (taglines && taglines[chart.label]) || '';
     const safeId = 'chart-' + idx + '-' + chart.type;
-    const head = '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>' +
+    const measure = chart.measure || 'count';
+    const supportsMeasure = chart.twoDim || ['bar','hbar','pie','donut'].includes(chart.type);
+    const controls =
+      (supportsMeasure ? '<button class="chart-toggle" title="Count / percent" onclick="toggleMeasure('+idx+')">'+(measure==='percent'?'%':'#')+'</button>' : '') +
+      (chart.twoDim ? '<button class="chart-toggle" title="Stacked / grouped" onclick="toggleBarmode('+idx+')">'+(chart.barmode==='grouped'?'▦':'▤')+'</button>' : '') +
+      '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>';
+    const head = '<div class="chart-controls">'+controls+'</div>' +
       '<div class="chart-title">'+escapeHtml(chart.label)+'</div>' +
       '<div class="chart-tagline">'+escapeHtml(tagline)+'</div>';
 
@@ -1502,23 +1537,41 @@ function renderCharts(charts, taglines, allRows) {
     const ctx = document.getElementById(safeId)?.getContext('2d');
     if (!ctx) return;
 
+    const pct = measure === 'percent';
+    const valTicks = pct ? { callback: v => v + '%' } : { precision: 0 };
+    const valMax = pct ? 100 : undefined;
     let instance;
-    if (chart.type === 'stacked') {
-      const datasets = chart.scats.map((s,i) => ({
+
+    if (chart.twoDim) {                       // cross-tab: sentiment by country, etc.
+      const stacked = chart.barmode !== 'grouped';
+      const horizontal = chart.type === 'hbar';
+      const datasets = chart.scats.map((s, i) => ({
         label: s, data: chart.matrix[s], borderRadius: 3,
         backgroundColor: looksSentiment(chart.series) ? sentimentColour(s) : PALETTE[i%PALETTE.length],
       }));
+      const valAxis = { stacked, beginAtZero: true, ticks: valTicks, max: valMax };
+      const catAxis = { stacked, ticks: { maxRotation: 45 } };
       instance = new Chart(ctx, { type:'bar', data:{ labels: chart.xcats, datasets },
+        options:{ indexAxis: horizontal ? 'y' : 'x', responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ position:'bottom', labels:{ font:{ size:10 }, boxWidth:12 } } },
+          scales: horizontal ? { x: valAxis, y: catAxis } : { x: catAxis, y: valAxis } } });
+    } else if (chart.type === 'multiline') {  // e.g. sentiment by date
+      const datasets = chart.datasets.map((d, i) => ({
+        label: d.label, data: d.data, tension: 0.3, pointRadius: 2, fill: false,
+        borderColor: looksSentiment(chart.series) ? sentimentColour(d.label) : PALETTE[i%PALETTE.length],
+      }));
+      instance = new Chart(ctx, { type:'line', data:{ labels: chart.labels, datasets },
         options:{ responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{ position:'bottom', labels:{ font:{ size:10 }, boxWidth:12 } } },
-          scales:{ x:{ stacked:true, ticks:{ maxRotation:45 } }, y:{ stacked:true, beginAtZero:true, ticks:{ precision:0 } } } } });
+          scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
     } else if (chart.type === 'pie' || chart.type === 'donut') {
       const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
       const colours = labels.map((l,i) => looksSentiment(chart.column) ? sentimentColour(l) : PALETTE[i%PALETTE.length]);
       instance = new Chart(ctx, { type:'doughnut',
         data:{ labels, datasets:[{ data:values, backgroundColor:colours }] },
         options:{ responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } } } } });
+          plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } },
+            tooltip: pct ? { callbacks:{ label: c => c.label + ': ' + c.parsed + '%' } } : {} } } });
     } else if (chart.type === 'line') {
       instance = new Chart(ctx, { type:'line',
         data:{ labels:chart.timeSeries.labels, datasets:[{ data:chart.timeSeries.values,
@@ -1526,21 +1579,25 @@ function renderCharts(charts, taglines, allRows) {
         options:{ responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{ display:false } },
           scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
-    } else { // bar, sentiment_bar, hbar
+    } else { // bar, sentiment_bar, hbar (single dimension)
       const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
       const horizontal = chart.type === 'hbar';
       const colours = (chart.type === 'sentiment_bar' || looksSentiment(chart.column))
         ? labels.map(sentimentColour) : labels.map((_,i) => PALETTE[i%PALETTE.length]);
+      const valAxis = { beginAtZero:true, ticks: valTicks, max: valMax };
+      const catAxis = { ticks:{ maxRotation:45 } };
       instance = new Chart(ctx, { type:'bar',
         data:{ labels, datasets:[{ data:values, backgroundColor:colours, borderRadius:4 }] },
         options:{ indexAxis: horizontal ? 'y' : 'x', responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{ display:false } },
-          scales:{ x:{ beginAtZero:horizontal, ticks:{ maxRotation:45, precision:0 } },
-                   y:{ beginAtZero:!horizontal, ticks:{ precision:0 } } } } });
+          scales: horizontal ? { x: valAxis, y: catAxis } : { x: catAxis, y: valAxis } } });
     }
     if (instance) _chartInstances[safeId] = instance;
   });
 }
+
+function toggleMeasure(idx) { const c = _dashCharts[idx]; c.measure = (c.measure === 'percent') ? 'count' : 'percent'; renderDashboard(); }
+function toggleBarmode(idx) { const c = _dashCharts[idx]; c.barmode = (c.barmode === 'grouped') ? 'stacked' : 'grouped'; renderDashboard(); }
 
 // ── Interactive dashboard: KPI tiles, filters, manual chart picker ───────────
 function renderDashboard() {
@@ -1635,51 +1692,54 @@ function clearFilters() { buildFilterBar(); renderDashboard(); }
 
 function buildManualPicker() {
   const colOpts = _resultColumns.map(c => '<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>').join('');
+  const dim = defaultDimensionColumn();
   document.getElementById('chartPicker').innerHTML =
-    '<div class="filter-item"><label>Add a chart — column</label><select id="pickCol">'+colOpts+'</select></div>' +
+    '<div class="filter-item"><label>Column</label><select id="pickCol">'+colOpts+'</select></div>' +
+    '<div class="filter-item"><label>Break down by <span style="opacity:.6">(optional)</span></label>' +
+      '<select id="pickSeries"><option value="">None</option>'+colOpts+'</select></div>' +
     '<div class="filter-item"><label>Chart type</label><select id="pickType" onchange="togglePickSeries()">' +
       '<option value="bar">Bar</option>' +
-      '<option value="hbar">Top-N (horizontal bar)</option>' +
-      '<option value="pie">Pie / donut</option>' +
-      '<option value="stacked">Cross-tab (stacked)</option>' +
       '<option value="line">Line (over time)</option>' +
+      '<option value="pie">Pie</option>' +
+      '<option value="donut">Donut</option>' +
+      '<option value="hbar">Top-N (horizontal)</option>' +
       '<option value="wordcloud">Word cloud</option>' +
       '<option value="verbatims">Sample verbatims</option>' +
     '</select></div>' +
-    '<div class="filter-item" id="pickSeriesWrap" style="display:none;"><label>Split by</label><select id="pickSeries">'+colOpts+'</select></div>' +
     '<button class="btn btn-primary btn-sm" onclick="addManualChart()">+ Add chart</button>';
+  if (dim) document.getElementById('pickCol').value = dim;
 }
 
-// The free-text column (longest average value) — best for word clouds/verbatims.
-function bestTextColumn() {
-  let best = null, bestLen = 0;
-  const sample = _allRows.slice(0, 30);
-  for (const c of _resultColumns) {
-    const avg = sample.reduce((a, r) => a + String(r[c] || '').length, 0) / (sample.length || 1);
-    if (avg > bestLen) { bestLen = avg; best = c; }
-  }
-  return best;
+// First categorical-looking column — a sensible default dimension (not the id).
+function defaultDimensionColumn() {
+  const cats = detectFilterColumns();
+  if (cats.length) return cats[0].col;
+  return _resultColumns[0] || '';
 }
 
+// "Break down by" only applies to bar-family and line; disable it for the rest.
 function togglePickSeries() {
   const type = document.getElementById('pickType').value;
-  document.getElementById('pickSeriesWrap').style.display = type === 'stacked' ? 'flex' : 'none';
-  // Word clouds / verbatims only make sense on a text column — pick one for them.
-  if (type === 'wordcloud' || type === 'verbatims') {
-    const best = bestTextColumn();
-    if (best) document.getElementById('pickCol').value = best;
-  }
+  const supportsBreakdown = ['bar', 'hbar', 'line'].includes(type);
+  const sel = document.getElementById('pickSeries');
+  sel.disabled = !supportsBreakdown;
+  if (!supportsBreakdown) sel.value = '';
+  sel.parentElement.style.opacity = supportsBreakdown ? '1' : '0.4';
 }
 
 function addManualChart() {
   const column = document.getElementById('pickCol').value;
   const type = document.getElementById('pickType').value;
+  const series = document.getElementById('pickSeries').value || '';
   if (!column) return;
-  const labels = { bar:'Breakdown of', hbar:'Top values —', pie:'Share of', line:'Volume over time —', wordcloud:'Word cloud —', verbatims:'Sample verbatims —' };
-  const cfg = { type, column, label: (labels[type] || '') + ' ' + column };
-  if (type === 'stacked') {
-    cfg.series = document.getElementById('pickSeries').value;
-    cfg.label = column + ' × ' + cfg.series;
+  const cfg = { type, column, measure: 'count' };
+  const single = { bar:'Breakdown of', hbar:'Top', pie:'Share of', donut:'Share of', line:'Volume over time —', wordcloud:'Word cloud —', verbatims:'Sample verbatims —' };
+  if (series && ['bar','hbar','line'].includes(type)) {
+    cfg.series = series;
+    if (type === 'bar' || type === 'hbar') cfg.barmode = 'stacked';
+    cfg.label = series + ' by ' + column;
+  } else {
+    cfg.label = (single[type] || '') + ' ' + column;
   }
   _dashCharts.push(cfg);
   renderDashboard();
