@@ -308,6 +308,10 @@
       </div>
     </div>
     <div class="step-body">
+      <div id="myDatasetsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
+        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">📁 Your saved datasets</div>
+        <div id="myDatasetsList"></div>
+      </div>
       <div class="tabs">
         <button class="tab active" onclick="switchTab('file')">Upload file</button>
         <button class="tab" onclick="switchTab('gsheet')">Google Sheet</button>
@@ -415,6 +419,11 @@
         <div class="btn-group" style="margin-top:16px;">
           <button class="btn btn-primary" onclick="exportFile('csv')">Download CSV</button>
           <button class="btn btn-ghost" onclick="exportFile('xlsx')">Download XLSX</button>
+        </div>
+        <div id="saveDatasetRow" class="hidden" style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="saveDatasetName" placeholder="Name this dataset…" style="max-width:260px;width:auto;">
+          <button class="btn btn-ghost btn-sm" onclick="saveDataset()">💾 Save to my datasets</button>
+          <span id="saveDatasetStatus" style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;"></span>
         </div>
       </div>
     </div>
@@ -1643,6 +1652,88 @@ function addManualChart() {
 
 function removeChart(idx) { _dashCharts.splice(idx, 1); renderDashboard(); }
 
+// ── Saved datasets (Phase B) ────────────────────────────────────────────────
+let _storageEnabled = false;
+
+async function initFeatures() {
+  try {
+    const r = await api('/api/me');
+    if (r.ok) { const me = await r.json(); _storageEnabled = !!me.storage_enabled; }
+  } catch { _storageEnabled = false; }
+  document.getElementById('saveDatasetRow').classList.toggle('hidden', !_storageEnabled);
+  if (_storageEnabled) loadMyDatasets();
+  else document.getElementById('myDatasetsPanel').classList.add('hidden');
+}
+
+async function loadMyDatasets() {
+  if (!_storageEnabled) return;
+  try {
+    const r = await api('/api/datasets');
+    if (!r.ok) return;
+    const d = await r.json();
+    renderMyDatasets(d.datasets || []);
+  } catch {}
+}
+
+function renderMyDatasets(list) {
+  const panel = document.getElementById('myDatasetsPanel');
+  if (!list.length) { panel.classList.add('hidden'); return; }
+  document.getElementById('myDatasetsList').innerHTML = list.map(ds => {
+    const when = (ds.created_at || '').slice(0, 10);
+    return '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
+      '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(ds.name)+'</div>' +
+      '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">'+(ds.row_count||0)+' rows · '+when+'</div></div>' +
+      '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+        '<button class="btn btn-ghost btn-sm" onclick="loadSavedDataset(\''+ds.id+'\')">Load</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="deleteSavedDataset(\''+ds.id+'\')">Delete</button>' +
+      '</div></div>';
+  }).join('');
+  panel.classList.remove('hidden');
+}
+
+async function saveDataset() {
+  const name = (document.getElementById('saveDatasetName').value || '').trim();
+  const status = document.getElementById('saveDatasetStatus');
+  if (!name) { status.textContent = 'Enter a name first.'; return; }
+  status.textContent = 'Saving…';
+  try {
+    const r = await api('/api/datasets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, use_result: true }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    status.textContent = '✓ Saved (' + (d.row_count || 0) + ' rows)';
+    document.getElementById('saveDatasetName').value = '';
+    loadMyDatasets();
+  } catch (e) { status.textContent = '✕ ' + e.message; }
+}
+
+async function loadSavedDataset(id) {
+  try {
+    const r = await api('/api/datasets/' + id);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Load failed');
+    state.columns = d.columns;
+    state.parsedData = { columns: d.columns, rows: d.preview };
+    showDataPreview(d.columns, d.row_count, d.preview);
+    renderTable('resultsTable', d.columns, d.preview);
+    document.getElementById('resultsSection').classList.remove('hidden');
+    document.getElementById('saveDatasetRow').classList.toggle('hidden', !_storageEnabled);
+    unlockStep2();
+    unlockAnalytics(d.columns);
+  } catch (e) { alert('Load failed: ' + e.message); }
+}
+
+async function deleteSavedDataset(id) {
+  if (!confirm('Delete this saved dataset? This cannot be undone.')) return;
+  try {
+    const r = await api('/api/datasets/' + id, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Delete failed'); }
+    loadMyDatasets();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
 function renderWordCloud(containerId, wordFreq) {
   const container = document.getElementById(containerId);
   if (!container || !wordFreq.length) return;
@@ -1692,6 +1783,7 @@ function onAuthed(session) {
   pill.style.cursor = 'pointer';
   pill.title = 'Sign out';
   pill.onclick = handleLogout;
+  initFeatures();
 }
 
 function onSignedOut() {

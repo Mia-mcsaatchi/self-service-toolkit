@@ -1,0 +1,33 @@
+name: Keep Supabase awake
+
+# Free-tier Supabase projects pause after ~7 days of inactivity. This pings the
+# project once a day so it stays active while the POC is in use.
+#
+# NOTE: GitHub only runs scheduled workflows from the repository's DEFAULT
+# branch. This won't fire on `schedule` until it's merged to `main`. You can
+# always trigger it by hand from the Actions tab (workflow_dispatch).
+
+on:
+  schedule:
+    - cron: "17 7 * * *"     # daily, 07:17 UTC
+  workflow_dispatch:          # manual "Run workflow" button
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase
+        env:
+          # Public values (safe to commit): project URL + publishable key.
+          SUPABASE_URL: https://wyhtzqurehmgejpsdlpf.supabase.co
+          SUPABASE_ANON_KEY: sb_publishable_R9gOPs4ECSqrUQ2iLzGLPA_id6J6Njz
+        run: |
+          echo "Pinging $SUPABASE_URL to keep the project active…"
+          # Auth health (no key required)
+          curl -sS -o /dev/null -w "auth/health -> %{http_code}\n" \
+            "$SUPABASE_URL/auth/v1/health" || true
+          # REST root (registers an API request against the project)
+          curl -sS -o /dev/null -w "rest/v1 -> %{http_code}\n" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/" || true
+          echo "Done."

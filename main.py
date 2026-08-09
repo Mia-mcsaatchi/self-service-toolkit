@@ -32,6 +32,10 @@ SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 # Backend base URL of your Supabase project, e.g. https://xxxx.supabase.co
 # Only needed for the asymmetric (new signing keys) verification path.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+# Service-role key (SERVER SECRET) — lets the backend read/write saved datasets
+# in Postgres via PostgREST. Never expose it to the frontend or commit it.
+# When unset, the save/load feature is simply disabled (the app still runs).
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 # Only allow colleagues on this email domain to use the tool. Empty = allow any
 # authenticated user. Set to "" to disable the domain check.
 ALLOWED_EMAIL_DOMAIN = os.environ.get("ALLOWED_EMAIL_DOMAIN", "mcsaatchi.com").strip().lower()
@@ -161,6 +165,54 @@ def _state_for(user: Dict[str, Any]) -> Dict[str, Any]:
         _sessions[uid] = _new_state()
     return _sessions[uid]
 
+
+# ---------------------------------------------------------------------------
+# Durable storage (saved datasets) via Supabase Postgres / PostgREST
+# ---------------------------------------------------------------------------
+
+def _storage_ready() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+async def _sb_request(
+    method: str,
+    path: str,
+    *,
+    params: Optional[Dict[str, str]] = None,
+    data: Optional[Any] = None,
+    prefer: Optional[str] = None,
+) -> Any:
+    """Call the Supabase REST API (PostgREST) with the service-role key.
+
+    The backend scopes every query by the verified user id, so a user can only
+    ever touch their own rows.
+    """
+    if not _storage_ready():
+        raise HTTPException(
+            status_code=503,
+            detail="Saving isn't set up: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the backend.",
+        )
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.request(method, url, headers=headers, params=params, json=data) as resp:
+            text = await resp.text()
+            if resp.status >= 300:
+                raise HTTPException(status_code=502, detail=f"Storage error ({resp.status}): {text[:300]}")
+            if not text:
+                return None
+            try:
+                return json.loads(text)
+            except Exception:
+                return None
+
 BASE_PROMPT = (
     "You are a top-performing data analyst/consultant. "
     "Write clear, concise outputs optimized for analytics: each field should be a single cell-friendly string. "
@@ -208,6 +260,10 @@ class SuggestPromptRequest(BaseModel):
     is_cluster: bool = False
     samples: List[str] = []       # a few sample values from the source column(s)
     columns: List[str] = []
+
+class SaveDatasetRequest(BaseModel):
+    name: str
+    use_result: bool = True       # save tagged results if available, else raw data
 
 # ---------------------------------------------------------------------------
 # Analytics models
@@ -265,8 +321,8 @@ def health():
 
 @app.get("/api/me")
 def whoami(user: Dict[str, Any] = Depends(get_current_user)):
-    """Return the signed-in user. Handy for the frontend to confirm auth works."""
-    return user
+    """Return the signed-in user + which optional features are configured."""
+    return {**user, "storage_enabled": _storage_ready()}
 
 
 
@@ -650,6 +706,80 @@ def export_xlsx(user: Dict[str, Any] = Depends(get_current_user)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=results.xlsx"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Saved datasets (Phase B) — durable per-user storage in Supabase Postgres
+# ---------------------------------------------------------------------------
+
+@app.post("/api/datasets")
+async def save_dataset(body: SaveDatasetRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Save the current tagged results (or raw data) to the user's account."""
+    st = _state_for(user)
+    df = _get_export_df(st) if body.use_result else st.get("df")
+    if df is None:
+        raise HTTPException(status_code=400, detail="No data to save — upload or process a file first.")
+    sdf = _safe_df(df)
+    name = (body.name or "").strip() or "Untitled dataset"
+    payload = {
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "name": name,
+        "columns": sdf.columns.tolist(),
+        "rows": sdf.values.tolist(),
+        "row_count": int(len(sdf)),
+    }
+    result = await _sb_request("POST", "datasets", data=payload, prefer="return=representation")
+    saved = result[0] if isinstance(result, list) and result else (result or {})
+    return {"id": saved.get("id"), "name": name, "row_count": payload["row_count"]}
+
+
+@app.get("/api/datasets")
+async def list_datasets(user: Dict[str, Any] = Depends(get_current_user)):
+    """List the signed-in user's saved datasets (metadata only, newest first)."""
+    rows = await _sb_request("GET", "datasets", params={
+        "user_id": f"eq.{user['id']}",
+        "select": "id,name,row_count,created_at",
+        "order": "created_at.desc",
+    })
+    return {"datasets": rows or []}
+
+
+@app.get("/api/datasets/{dataset_id}")
+async def get_dataset(dataset_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Load a saved dataset back into the working session (scoped to the user)."""
+    rows = await _sb_request("GET", "datasets", params={
+        "id": f"eq.{dataset_id}",
+        "user_id": f"eq.{user['id']}",
+        "select": "id,name,columns,rows,row_count,created_at",
+        "limit": "1",
+    })
+    if not rows:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    d = rows[0]
+    df = pd.DataFrame(d.get("rows") or [], columns=d.get("columns") or [])
+    st = _state_for(user)
+    st["df"] = df
+    st["result_df"] = df
+    st["embeddings"] = None
+    st["embedded_texts"] = None
+    return {
+        "id": d["id"],
+        "name": d["name"],
+        "columns": d.get("columns") or [],
+        "row_count": d.get("row_count"),
+        "preview": df.head(10).fillna("").to_dict("records"),
+    }
+
+
+@app.delete("/api/datasets/{dataset_id}")
+async def delete_dataset(dataset_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Delete one of the user's saved datasets."""
+    await _sb_request("DELETE", "datasets", params={
+        "id": f"eq.{dataset_id}",
+        "user_id": f"eq.{user['id']}",
+    })
+    return {"deleted": dataset_id}
 
 
 # ---------------------------------------------------------------------------

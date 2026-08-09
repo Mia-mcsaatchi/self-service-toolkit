@@ -214,7 +214,86 @@ def test_suggest_prompt_empty_llm_is_502(client, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 4. Auth layer (independent of AUTH_DISABLED used above)
+# 4. Saved datasets (Phase B) — storage mocked as an in-memory PostgREST
+# --------------------------------------------------------------------------
+def _make_fake_store():
+    store = []
+
+    async def fake(method, path, *, params=None, data=None, prefer=None):
+        if method == "POST":
+            rec = dict(data)
+            rec["id"] = "id" + str(len(store) + 1)
+            rec["created_at"] = "2026-08-09T00:00:00Z"
+            store.append(rec)
+            return [rec]
+        if method == "GET":
+            uid = params["user_id"][3:]            # strip "eq."
+            rows = [r for r in store if r["user_id"] == uid]
+            if "id" in params:
+                did = params["id"][3:]
+                rows = [r for r in rows if r["id"] == did]
+            return rows
+        if method == "DELETE":
+            uid, did = params["user_id"][3:], params["id"][3:]
+            store[:] = [r for r in store if not (r["user_id"] == uid and r["id"] == did)]
+            return None
+        return None
+
+    return fake, store
+
+
+def test_datasets_crud(client, monkeypatch):
+    fake, _ = _make_fake_store()
+    monkeypatch.setattr(main, "_sb_request", fake)
+
+    df = _sample_df()
+    client.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()})
+
+    r = client.post("/api/datasets", json={"name": "My run", "use_result": True})
+    assert r.status_code == 200, r.text
+    ds_id = r.json()["id"]
+    assert r.json()["row_count"] == len(SAMPLE_ROWS)
+
+    r = client.get("/api/datasets")
+    lst = r.json()["datasets"]
+    assert len(lst) == 1 and lst[0]["name"] == "My run"
+
+    r = client.get("/api/datasets/" + ds_id)
+    assert r.status_code == 200
+    assert r.json()["columns"] == SAMPLE_COLUMNS
+    assert len(r.json()["preview"]) > 0
+
+    assert client.delete("/api/datasets/" + ds_id).status_code == 200
+    assert client.get("/api/datasets").json()["datasets"] == []
+
+
+def test_datasets_isolated_per_user(monkeypatch):
+    monkeypatch.setattr(main, "AUTH_DISABLED", False)
+    monkeypatch.setattr(main, "SUPABASE_JWT_SECRET", "test-secret")
+    monkeypatch.setattr(main, "ALLOWED_EMAIL_DOMAIN", "mcsaatchi.com")
+    fake, _ = _make_fake_store()
+    monkeypatch.setattr(main, "_sb_request", fake)
+    main._sessions.clear()
+    c = TestClient(main.app)
+
+    def tok(sub, email):
+        return jwt.encode({"sub": sub, "email": email, "aud": "authenticated",
+                           "exp": int(time.time()) + 3600}, "test-secret", algorithm="HS256")
+
+    A = {"Authorization": f"Bearer {tok('userA', 'a@mcsaatchi.com')}"}
+    B = {"Authorization": f"Bearer {tok('userB', 'b@mcsaatchi.com')}"}
+
+    df = _sample_df()
+    c.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()}, headers=A)
+    ds_id = c.post("/api/datasets", json={"name": "A data"}, headers=A).json()["id"]
+
+    assert c.get("/api/datasets", headers=B).json()["datasets"] == []      # B sees nothing
+    assert c.get("/api/datasets/" + ds_id, headers=B).status_code == 404   # B can't load A's
+    assert c.get("/api/datasets/" + ds_id, headers=A).status_code == 200   # A can
+
+
+# --------------------------------------------------------------------------
+# 5. Auth layer (independent of AUTH_DISABLED used above)
 # --------------------------------------------------------------------------
 def test_auth_rejects_and_isolates(monkeypatch):
     monkeypatch.setattr(main, "AUTH_DISABLED", False)

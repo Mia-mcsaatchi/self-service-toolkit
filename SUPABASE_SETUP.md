@@ -112,11 +112,28 @@ user. **Never** enable this on the deployed backend.
 
 ---
 
-## What's next (not in this phase)
+## Phase B — saving datasets (optional)
 
-Phase A only puts *identity* and *per-user isolation* in place. Data still lives
-in memory and is lost on backend restart. The next phases add durable storage in
-Supabase Postgres:
+Lets each user save tagged results to their account and reload them later, so a
+restart (or a Supabase unpause) no longer wipes their work.
 
-- **Phase B** — save uploaded + tagged datasets to your account.
-- **Phase C** — save a tagged dataset + its chosen dimension as a reusable dashboard.
+1. **Create the table.** Supabase dashboard → **SQL Editor → New query**, paste
+   the contents of `supabase/schema.sql`, and **Run**.
+2. **Add the service-role key to the backend.** Supabase → **Project Settings →
+   API → `service_role`** (secret). Put it in your backend `.env`:
+   ```
+   SUPABASE_SERVICE_ROLE_KEY=eyJ... (the service_role secret)
+   ```
+   This is a **server secret** — never commit it, never put it in the frontend.
+   The backend uses it to read/write the `datasets` table and scopes every query
+   by the signed-in user's id, so users only ever see their own data.
+3. **Restart the backend.** A "📁 Your saved datasets" panel appears on Step 1,
+   and a "💾 Save to my datasets" button appears after you run the pipeline.
+
+If you skip this, the save/load feature is simply hidden and everything else
+works exactly as before.
+
+## What's next
+
+- **Phase C** — save a tagged dataset + its chosen dimension as a reusable,
+  revisitable dashboard.
