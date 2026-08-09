@@ -894,6 +894,25 @@ async def delete_dashboard(dashboard_id: str, user: Dict[str, Any] = Depends(get
     return {"deleted": dashboard_id}
 
 
+@app.delete("/api/account/data")
+async def delete_all_my_data(user: Dict[str, Any] = Depends(get_current_user)):
+    """Delete ALL of the signed-in user's saved datasets and dashboards.
+
+    The account itself is left intact. dashboard_shares rows cascade on the
+    dashboards FK, so they're removed automatically.
+    """
+    ds = await _sb_request("DELETE", "datasets",
+                           params={"user_id": f"eq.{user['id']}"},
+                           prefer="return=representation")
+    db = await _sb_request("DELETE", "dashboards",
+                           params={"owner_id": f"eq.{user['id']}"},
+                           prefer="return=representation")
+    return {
+        "datasets_deleted": len(ds) if isinstance(ds, list) else 0,
+        "dashboards_deleted": len(db) if isinstance(db, list) else 0,
+    }
+
+
 @app.post("/api/dashboards/{dashboard_id}/publish")
 async def publish_dashboard(dashboard_id: str, body: PublishRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """Turn the public read-only link on or off."""

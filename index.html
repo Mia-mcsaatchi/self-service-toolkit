@@ -67,7 +67,7 @@
     /* ── Forms ── */
     .form-group { margin-bottom: 16px; }
     label { display: block; font-size: 11px; font-weight: 500; color: var(--ink-muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; }
-    input[type="text"], input[type="file"], input[type="number"], textarea, select { width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--ink); font-size: 13px; font-family: 'Geist', sans-serif; transition: border-color 0.15s; outline: none; }
+    input[type="text"], input[type="password"], input[type="email"], input[type="file"], input[type="number"], textarea, select { width: 100%; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--ink); font-size: 13px; font-family: 'Geist', sans-serif; transition: border-color 0.15s; outline: none; }
     input:focus, textarea:focus, select:focus { border-color: var(--border-strong); box-shadow: 0 0 0 3px rgba(0,0,0,0.04); }
     input[type="file"] { cursor: pointer; font-family: 'DM Mono', monospace; font-size: 12px; }
     input[type="file"]::file-selector-button { background: var(--surface2); border: 1px solid var(--border); color: var(--ink); padding: 5px 12px; border-radius: 5px; cursor: pointer; font-family: 'Geist', sans-serif; font-size: 12px; font-weight: 500; margin-right: 10px; }
@@ -261,16 +261,89 @@
     <div class="login-error" id="loginError"></div>
     <div class="login-info" id="loginInfo" style="display:none;"></div>
 
+    <div class="login-tabs" style="display:flex;gap:6px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:4px;">
+      <button type="button" id="tabMagic" class="login-tab" onclick="setLoginMode('magic')" style="flex:1;border:none;background:var(--blue);color:#fff;border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Magic link</button>
+      <button type="button" id="tabPassword" class="login-tab" onclick="setLoginMode('password')" style="flex:1;border:none;background:transparent;color:var(--ink-muted);border-radius:999px;padding:7px 0;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;">Password</button>
+    </div>
+
     <div class="form-group">
       <label>Work email</label>
       <input type="text" id="loginEmail" placeholder="you@mcsaatchi.com" autocomplete="email">
     </div>
 
-    <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="handleLogin()">Send login link</button>
+    <div class="form-group" id="passwordGroup" style="display:none;">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+    </div>
 
-    <div class="login-note">
+    <button class="btn btn-primary" id="loginPrimaryBtn" style="width:100%;justify-content:center;" onclick="handleLogin()">Send login link</button>
+    <button class="btn btn-ghost" id="loginSignupBtn" style="width:100%;justify-content:center;display:none;margin-top:8px;" onclick="handleSignup()">Create an account</button>
+
+    <div class="login-note" id="loginNote">
       Sign in with your @mcsaatchi.com email.<br>
       We'll email you a secure one-click login link — no password needed.
+    </div>
+  </div>
+</div>
+
+<!-- Account / user-management modal -->
+<div id="accountModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.45);align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:640px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);">
+      <div style="font-size:15px;font-weight:700;color:var(--ink);">Your account</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeAccount()">✕ Close</button>
+    </div>
+    <div style="padding:22px;display:flex;flex-direction:column;gap:22px;">
+
+      <!-- Account info -->
+      <section>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="user-avatar" id="acctAvatar" style="width:40px;height:40px;font-size:16px;">?</div>
+          <div style="min-width:0;">
+            <div id="acctEmail" style="font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;">—</div>
+            <div id="acctMethod" style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;">—</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto;" onclick="handleLogout()">Sign out</button>
+        </div>
+      </section>
+
+      <!-- Saved datasets -->
+      <section>
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px;font-family:'DM Mono',monospace;">📁 Saved datasets</div>
+        <div id="acctDatasets" style="font-size:12px;color:var(--ink-muted);">Loading…</div>
+      </section>
+
+      <!-- Saved dashboards -->
+      <section>
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px;font-family:'DM Mono',monospace;">📊 Saved dashboards</div>
+        <div id="acctDashboards" style="font-size:12px;color:var(--ink-muted);">Loading…</div>
+      </section>
+
+      <!-- Shared with me -->
+      <section>
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px;font-family:'DM Mono',monospace;">🤝 Shared with me</div>
+        <div id="acctShared" style="font-size:12px;color:var(--ink-muted);">Loading…</div>
+      </section>
+
+      <!-- Password -->
+      <section style="border-top:1px solid var(--border);padding-top:18px;">
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:4px;font-family:'DM Mono',monospace;">🔑 Password</div>
+        <div style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">Set or change your password so you can sign in without a magic link.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="password" id="acctNewPassword" placeholder="New password (min 8 chars)" autocomplete="new-password" style="flex:1;min-width:200px;">
+          <button class="btn btn-primary btn-sm" onclick="changePassword()">Update password</button>
+        </div>
+        <div id="acctPwStatus" style="font-size:11px;margin-top:8px;font-family:'DM Mono',monospace;"></div>
+      </section>
+
+      <!-- Danger zone -->
+      <section style="border-top:1px solid var(--border);padding-top:18px;">
+        <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px;font-family:'DM Mono',monospace;">⚠ Delete my data</div>
+        <div style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">Permanently delete all your saved datasets and dashboards. This cannot be undone. Your account stays active.</div>
+        <button class="btn btn-danger btn-sm" onclick="deleteAllMyData()">Delete all my data</button>
+        <div id="acctDeleteStatus" style="font-size:11px;margin-top:8px;font-family:'DM Mono',monospace;"></div>
+      </section>
+
     </div>
   </div>
 </div>
@@ -536,10 +609,11 @@
 <script>
 // When the page is opened locally (VS Code Live Server, python http.server, …)
 // talk to the backend running on your machine; otherwise use the hosted one.
+// ⚠ DEPLOY: set PROD_BACKEND to your hosted backend URL (e.g. the Render URL,
+// no trailing slash). See DEPLOY.md.
+const PROD_BACKEND = 'https://self-service-toolkit.onrender.com';
 const _isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
-const BACKEND = _isLocal
-  ? 'http://127.0.0.1:8000'
-  : 'https://self-service-toolkit-production.up.railway.app';
+const BACKEND = _isLocal ? 'http://127.0.0.1:8000' : PROD_BACKEND;
 const state = { columns: [], parsedData: null, workbook: null };
 function base() { return BACKEND; }
 
@@ -2114,11 +2188,49 @@ function renderWordCloud(containerId, wordFreq) {
 // ── Login (Supabase magic link) ─────────────────────────────────────────────
 
 const MCSAATCHI_DOMAIN = 'mcsaatchi.com';
+let _loginMode = 'magic';       // 'magic' | 'password'
+let _authMethod = 'magic link'; // how the current user signed in (for the account panel)
 
-// Allow Enter key to submit
+// Switch the login form between magic-link and email+password modes.
+function setLoginMode(mode) {
+  _loginMode = mode;
+  const magic = mode === 'magic';
+  const tabMagic = document.getElementById('tabMagic');
+  const tabPw = document.getElementById('tabPassword');
+  tabMagic.style.background = magic ? 'var(--blue)' : 'transparent';
+  tabMagic.style.color = magic ? '#fff' : 'var(--ink-muted)';
+  tabPw.style.background = magic ? 'transparent' : 'var(--blue)';
+  tabPw.style.color = magic ? 'var(--ink-muted)' : '#fff';
+  document.getElementById('passwordGroup').style.display = magic ? 'none' : 'block';
+  document.getElementById('loginSignupBtn').style.display = magic ? 'none' : 'flex';
+  document.getElementById('loginPrimaryBtn').textContent = magic ? 'Send login link' : 'Sign in';
+  document.getElementById('loginNote').innerHTML = magic
+    ? 'Sign in with your @' + MCSAATCHI_DOMAIN + ' email.<br>We\'ll email you a secure one-click login link — no password needed.'
+    : 'New here? Enter your @' + MCSAATCHI_DOMAIN + ' email and a password, then <b>Create an account</b>. You\'ll get a confirmation email once.';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginInfo').style.display = 'none';
+}
+
+// Allow Enter key to submit from either field
 document.getElementById('loginEmail').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') handleLogin();
 });
+document.getElementById('loginPassword').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') handleLogin();
+});
+
+// Shared validation for both flows. Returns the lower-cased email or null.
+function validatedLoginEmail() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  if (!email || !email.includes('@') || !email.includes('.')) {
+    showLoginError('Please enter a valid email address.'); return null;
+  }
+  if (!email.endsWith('@' + MCSAATCHI_DOMAIN)) {
+    showLoginError('Access is limited to @' + MCSAATCHI_DOMAIN + ' accounts.'); return null;
+  }
+  if (!supa) { showLoginError('Sign-in is not configured yet.'); return null; }
+  return email;
+}
 
 // Called once at startup: restore an existing session or wait for sign-in.
 async function initAuth() {
@@ -2138,14 +2250,17 @@ async function initAuth() {
 function onAuthed(session) {
   _accessToken = session.access_token;
   _userEmail = (session.user && session.user.email) || '';
+  // Infer how they signed in (Supabase records providers on the identity).
+  const providers = (session.user && session.user.app_metadata && session.user.app_metadata.providers) || [];
+  _authMethod = providers.includes('email') ? 'email + password' : 'magic link';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('userEmail').textContent = _userEmail;
   document.getElementById('userAvatar').textContent = (_userEmail[0] || '?').toUpperCase();
   const pill = document.getElementById('userPill');
   pill.style.display = 'flex';
   pill.style.cursor = 'pointer';
-  pill.title = 'Sign out';
-  pill.onclick = handleLogout;
+  pill.title = 'Your account';
+  pill.onclick = openAccount;
   initFeatures();
 }
 
@@ -2157,42 +2272,174 @@ function onSignedOut() {
 }
 
 async function handleLogin() {
-  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
   document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginInfo').style.display = 'none';
+  const email = validatedLoginEmail();
+  if (!email) return;
 
-  if (!email || !email.includes('@') || !email.includes('.')) {
-    showLoginError('Please enter a valid email address.');
-    return;
-  }
-  if (!email.endsWith('@' + MCSAATCHI_DOMAIN)) {
-    showLoginError('Access is limited to @' + MCSAATCHI_DOMAIN + ' accounts.');
-    return;
-  }
-  if (!supa) {
-    showLoginError('Sign-in is not configured yet.');
-    return;
+  const btn = document.getElementById('loginPrimaryBtn');
+
+  // Password sign-in
+  if (_loginMode === 'password') {
+    const password = document.getElementById('loginPassword').value;
+    if (!password) { showLoginError('Enter your password.'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
+    const { error } = await supa.auth.signInWithPassword({ email, password });
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign in'; }
+    if (error) {
+      const msg = /invalid login/i.test(error.message || '')
+        ? 'Wrong email or password. New here? Use “Create an account”.'
+        : (error.message || 'Could not sign in.');
+      showLoginError(msg);
+    }
+    return; // onAuthStateChange handles success
   }
 
-  const btn = document.querySelector('#loginScreen .btn-primary');
+  // Magic-link sign-in
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-
   const { error } = await supa.auth.signInWithOtp({
     email,
     options: { emailRedirectTo: window.location.href.split('#')[0] },
   });
-
   if (btn) { btn.disabled = false; btn.textContent = 'Send login link'; }
+  if (error) { showLoginError(error.message || 'Could not send the login link. Please try again.'); return; }
+  showLoginInfo('Check your inbox — we sent a login link to ' + email + '. Open it on this device to sign in.');
+}
 
+// Self sign-up with email + password (domain-restricted).
+async function handleSignup() {
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginInfo').style.display = 'none';
+  const email = validatedLoginEmail();
+  if (!email) return;
+  const password = document.getElementById('loginPassword').value;
+  if (!password || password.length < 8) { showLoginError('Choose a password of at least 8 characters.'); return; }
+
+  const btn = document.getElementById('loginSignupBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  const { data, error } = await supa.auth.signUp({
+    email, password,
+    options: { emailRedirectTo: window.location.href.split('#')[0] },
+  });
+  if (btn) { btn.disabled = false; btn.textContent = 'Create an account'; }
   if (error) {
-    showLoginError(error.message || 'Could not send the login link. Please try again.');
+    const msg = /already registered/i.test(error.message || '')
+      ? 'That email already has an account — switch to Sign in.'
+      : (error.message || 'Could not create the account.');
+    showLoginError(msg);
     return;
   }
-  showLoginInfo('Check your inbox — we sent a login link to ' + email + '. Open it on this device to sign in.');
+  // If email confirmation is on, there's no session yet.
+  if (data && data.session) {
+    showLoginInfo('Account created — signing you in…');
+  } else {
+    showLoginInfo('Account created. Check your inbox to confirm your email, then sign in with your password.');
+  }
 }
 
 async function handleLogout() {
   if (supa) await supa.auth.signOut();
+  closeAccount();
   onSignedOut();
+}
+
+// ── Account / user-management modal ─────────────────────────────────────────
+function openAccount() {
+  document.getElementById('acctEmail').textContent = _userEmail || '—';
+  document.getElementById('acctMethod').textContent = 'Signed in via ' + _authMethod;
+  document.getElementById('acctAvatar').textContent = (_userEmail[0] || '?').toUpperCase();
+  document.getElementById('acctPwStatus').textContent = '';
+  document.getElementById('acctDeleteStatus').textContent = '';
+  document.getElementById('accountModal').style.display = 'flex';
+  refreshAccountLists();
+}
+function closeAccount() { document.getElementById('accountModal').style.display = 'none'; }
+
+// Close on backdrop click / Escape
+document.getElementById('accountModal').addEventListener('click', e => {
+  if (e.target.id === 'accountModal') closeAccount();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('accountModal').style.display === 'flex') closeAccount();
+});
+
+async function refreshAccountLists() {
+  if (!_storageEnabled) {
+    const msg = '<span style="color:var(--ink-muted);">Saving to your account isn\'t switched on yet (backend storage not configured).</span>';
+    ['acctDatasets', 'acctDashboards', 'acctShared'].forEach(id => document.getElementById(id).innerHTML = msg);
+    return;
+  }
+  // Datasets
+  try {
+    const list = ((await (await api('/api/datasets')).json()).datasets) || [];
+    document.getElementById('acctDatasets').innerHTML = list.length ? list.map(ds =>
+      acctRow(escapeHtml(ds.name), (ds.row_count || 0) + ' rows · ' + (ds.created_at || '').slice(0, 10),
+        '<button class="btn btn-ghost btn-sm" onclick="acctLoadDataset(\'' + ds.id + '\')">Load</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="acctDeleteDataset(\'' + ds.id + '\')">Delete</button>')
+    ).join('') : acctEmpty('No saved datasets yet.');
+  } catch { document.getElementById('acctDatasets').innerHTML = acctEmpty('Could not load datasets.'); }
+  // Dashboards
+  try {
+    const list = ((await (await api('/api/dashboards')).json()).dashboards) || [];
+    document.getElementById('acctDashboards').innerHTML = list.length ? list.map(d =>
+      acctRow(escapeHtml(d.name) + (d.is_public ? ' <span style="font-size:9px;color:var(--blue);border:1px solid var(--border);border-radius:999px;padding:0 5px;">public</span>' : ''),
+        (d.created_at || '').slice(0, 10),
+        '<button class="btn btn-ghost btn-sm" onclick="acctOpenDashboard(\'' + d.id + '\')">Open</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="acctDeleteDashboard(\'' + d.id + '\')">Delete</button>')
+    ).join('') : acctEmpty('No saved dashboards yet.');
+  } catch { document.getElementById('acctDashboards').innerHTML = acctEmpty('Could not load dashboards.'); }
+  // Shared with me
+  try {
+    const list = ((await (await api('/api/shared-dashboards')).json()).dashboards) || [];
+    document.getElementById('acctShared').innerHTML = list.length ? list.map(d =>
+      acctRow(escapeHtml(d.name), 'from ' + escapeHtml(d.owner_email || 'a colleague'),
+        '<button class="btn btn-ghost btn-sm" onclick="acctOpenDashboard(\'' + d.id + '\')">Open</button>')
+    ).join('') : acctEmpty('Nothing shared with you yet.');
+  } catch { document.getElementById('acctShared').innerHTML = acctEmpty('Could not load shared dashboards.'); }
+}
+
+function acctRow(title, sub, actions) {
+  return '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface2);">' +
+    '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + title + '</div>' +
+    '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">' + sub + '</div></div>' +
+    '<div style="display:flex;gap:6px;flex-shrink:0;">' + actions + '</div></div>';
+}
+function acctEmpty(msg) { return '<span style="color:var(--ink-muted);">' + msg + '</span>'; }
+
+function acctLoadDataset(id) { closeAccount(); loadSavedDataset(id); }
+function acctOpenDashboard(id) { closeAccount(); openDashboard(id); }
+async function acctDeleteDataset(id) { await deleteSavedDataset(id); refreshAccountLists(); }
+async function acctDeleteDashboard(id) { await deleteDashboard(id); refreshAccountLists(); }
+
+// Set/change password — works for magic-link users too (adds a password identity).
+async function changePassword() {
+  const status = document.getElementById('acctPwStatus');
+  const pw = document.getElementById('acctNewPassword').value;
+  if (!pw || pw.length < 8) { status.style.color = 'var(--red)'; status.textContent = 'Password must be at least 8 characters.'; return; }
+  if (!supa) { status.style.color = 'var(--red)'; status.textContent = 'Auth not configured.'; return; }
+  status.style.color = 'var(--ink-muted)'; status.textContent = 'Updating…';
+  const { error } = await supa.auth.updateUser({ password: pw });
+  if (error) { status.style.color = 'var(--red)'; status.textContent = '✕ ' + (error.message || 'Could not update password.'); return; }
+  document.getElementById('acctNewPassword').value = '';
+  _authMethod = 'email + password';
+  document.getElementById('acctMethod').textContent = 'Signed in via ' + _authMethod;
+  status.style.color = 'var(--green, #16a34a)'; status.textContent = '✓ Password updated — you can now sign in with it.';
+}
+
+async function deleteAllMyData() {
+  const status = document.getElementById('acctDeleteStatus');
+  if (!confirm('Delete ALL your saved datasets and dashboards? This cannot be undone.')) return;
+  status.style.color = 'var(--ink-muted)'; status.textContent = 'Deleting…';
+  try {
+    const r = await api('/api/account/data', { method: 'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Delete failed');
+    status.style.color = 'var(--green, #16a34a)';
+    status.textContent = '✓ Deleted ' + (d.datasets_deleted || 0) + ' datasets and ' + (d.dashboards_deleted || 0) + ' dashboards.';
+    refreshAccountLists();
+    if (typeof loadMyDatasets === 'function') loadMyDatasets();
+    if (typeof loadMyDashboards === 'function') loadMyDashboards();
+  } catch (e) { status.style.color = 'var(--red)'; status.textContent = '✕ ' + e.message; }
 }
 
 function showLoginError(msg) {

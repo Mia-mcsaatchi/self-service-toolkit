@@ -128,6 +128,7 @@
   <div class="toc">
     <div class="toc-title">Contents</div>
     <a href="#overview">What this tool does</a>
+    <a href="#signin">Signing in</a>
     <a href="#step1">Step 1 — Load your data</a>
     <a href="#step2">Step 2 — Configure fields</a>
     <div class="toc-sub">
@@ -143,6 +144,13 @@
       <a href="#uc3">Conditional follow-up by value</a>
       <a href="#uc4">AND conditions across columns</a>
     </div>
+    <a href="#dashboard">The analytics dashboard</a>
+    <div class="toc-sub">
+      <a href="#dash-build">Building a dashboard</a>
+      <a href="#dash-uc">Dashboard use cases</a>
+    </div>
+    <a href="#sharing">Sharing &amp; publishing</a>
+    <a href="#account">Managing your account</a>
     <a href="#tips">Tips and edge cases</a>
   </div>
 
@@ -150,6 +158,12 @@
   <p>The Self-Service Toolkit takes any spreadsheet — a Brandwatch export, a social listening dataset, a survey response file — and adds new AI-generated columns to it. You define what each new column should contain in plain English, and the tool runs every row through GPT-4o-mini to fill it in.</p>
   <p>The result is your original data with extra columns appended, ready to download as CSV or Excel.</p>
   <div class="callout c-note"><strong>No setup needed</strong>The tool runs in your browser and connects to a shared backend. You do not need an OpenAI account, API key, or any software installed.</div>
+
+  <h2 id="signin">Signing in</h2>
+  <p>Access is limited to <code>@mcsaatchi.com</code> email addresses. There are two ways in — pick whichever tab you prefer on the sign-in screen:</p>
+  <p><strong>Magic link</strong> — enter your work email and click <em>Send login link</em>. You'll get a one-click sign-in link by email; open it on the same device. No password to remember.</p>
+  <p><strong>Password</strong> — first time, enter your work email and a password (at least 8 characters) and click <em>Create an account</em>. You'll receive a one-off confirmation email; after confirming, sign in with your email and password. You can also set a password later from your account panel even if you first signed in with a magic link.</p>
+  <div class="callout c-note"><strong>Who can join</strong>Anyone with an <code>@mcsaatchi.com</code> address can self sign-up. Support for external collaborators (via invite tokens) and bring-your-own API key are planned for a later phase.</div>
 
   <h2 id="step1">Step 1 — Load your data</h2>
   <p>Upload a CSV or Excel file (.xlsx) using the file picker. For Excel files with multiple tabs, select the worksheet you want. Then click Upload to backend.</p>
@@ -422,6 +436,40 @@
 
   <h3>Conditional mode is greyed out</h3>
   <p>If the Conditional button appears greyed out with a tooltip, it means your data has no categorical columns — all columns have more than 30 unique values. Check that columns like <code>overall_sentiment</code>, <code>language</code>, or <code>country_code</code> are included in your file.</p>
+
+  <h2 id="dashboard">The analytics dashboard</h2>
+  <p>Once your data is loaded (either freshly enriched in Step 3, or opened from a saved dataset), you can turn it into an interactive dashboard — KPI tiles, filters, and charts with AI-written headlines — without writing any code.</p>
+
+  <h3 id="dash-build">Building a dashboard</h3>
+  <p>In the analytics step, describe what you want to explore in plain English — for example <em>"sentiment by country over time, and the most common topics"</em>. The tool interprets your request, computes the numbers from 100% of your rows, and lays out:</p>
+  <p>
+    • An <strong>executive summary</strong> — 4–5 headline bullets grounded in the real counts.<br>
+    • <strong>KPI tiles</strong> and <strong>filters</strong> so you can slice the data live.<br>
+    • <strong>Charts</strong> — cross-tab and stacked bars, donuts, time-series lines, and word clouds — each with a one-line analyst tagline.
+  </p>
+  <p>You can also use the manual chart builder to pick any two columns and toggle between counts and percentages. Charts respect the filters you set at the top of the board.</p>
+  <div class="callout c-tip"><strong>Numbers you can trust</strong>The counts and percentages are computed directly from your data — the AI only writes the narration around them, so it never invents figures.</div>
+
+  <h3 id="dash-uc">Dashboard use cases</h3>
+  <p><strong>Brand health readout</strong> — sentiment split overall and by market, with the sharpest verbatims surfaced as a word cloud. Publish a read-only link for the weekly stand-up.</p>
+  <p><strong>Campaign topic tracking</strong> — topic counts over time to see which themes gain traction after launch, filtered to a single country or language.</p>
+  <p><strong>Crisis triage</strong> — filter to negative sentiment, read the top verbatims, and share the board with the account team in one click.</p>
+
+  <h2 id="sharing">Sharing &amp; publishing</h2>
+  <p>After you build a dashboard, click <strong>Save dashboard</strong> and give it a name. A saved dashboard stores a snapshot of the data, so the charts stay exactly as you left them. There are then two ways to share it:</p>
+  <p><strong>Public read-only link</strong> — toggle <em>Publish</em> to on and copy the link (it ends in <code>?view=…</code>). Anyone with the link can view the dashboard read-only, no sign-in required. Toggle it off at any time to revoke access.</p>
+  <p><strong>Share with a colleague</strong> — enter a colleague's <code>@mcsaatchi.com</code> email. The dashboard then appears in their <em>Shared with me</em> list when they sign in — they don't need the link.</p>
+  <div class="callout c-warn"><strong>Snapshots are point-in-time</strong>A shared dashboard shows the data as it was when you saved it. If you re-run or update the underlying data, re-save (and re-publish) the dashboard to refresh what others see.</div>
+
+  <h2 id="account">Managing your account</h2>
+  <p>Click your email in the top-right corner to open <strong>Your account</strong>. From there you can:</p>
+  <p>
+    • See your <strong>saved datasets</strong> and <strong>saved dashboards</strong>, and open or delete any of them.<br>
+    • See dashboards <strong>shared with you</strong> by colleagues.<br>
+    • <strong>Set or change your password</strong> — useful if you signed in with a magic link and now want a password.<br>
+    • <strong>Delete all your data</strong> — permanently removes every saved dataset and dashboard. Your account stays active; this cannot be undone.<br>
+    • <strong>Sign out</strong>.
+  </p>
 
   <div class="page-footer">M&C Saatchi — Data Team — Self-Service Toolkit &nbsp;·&nbsp; <a href="../">Open toolkit</a></div>
 

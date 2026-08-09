@@ -347,10 +347,15 @@ def _make_fake_db():
                 r.update(data)
             return res
         if method == "DELETE":
-            oid = (params.get("owner_id") or "eq.")[3:]
-            did = (params.get("id") or "eq.")[3:]
-            tables[path] = [r for r in rows if not (str(r.get("id")) == did and str(r.get("owner_id")) == oid)]
-            return None
+            def _matches(r):
+                for key in ("id", "owner_id", "user_id", "dashboard_id", "shared_with_email"):
+                    val = params.get(key)
+                    if val and val.startswith("eq.") and str(r.get(key)) != val[3:]:
+                        return False
+                return True
+            deleted = [r for r in rows if _matches(r)]
+            tables[path] = [r for r in rows if not _matches(r)]
+            return deleted  # PostgREST returns representation when asked
         return None
 
     return fake, tables
@@ -384,6 +389,27 @@ def test_dashboard_save_publish_public(client, monkeypatch):
     # dashboard chart code that reads row[columnName] renders real data.
     assert isinstance(rows[0], dict)
     assert "overall_sentiment" in rows[0]
+
+
+def test_delete_all_my_data(client, monkeypatch):
+    fake, _ = _make_fake_db()   # generic store handles datasets + dashboards
+    monkeypatch.setattr(main, "_sb_request", fake)
+    df = _sample_df()
+    client.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()})
+
+    client.post("/api/datasets", json={"name": "ds1", "use_result": True})
+    client.post("/api/dashboards", json={"name": "db1", "config": {"charts": []}})
+    assert len(client.get("/api/datasets").json()["datasets"]) == 1
+    assert len(client.get("/api/dashboards").json()["dashboards"]) == 1
+
+    r = client.delete("/api/account/data")
+    assert r.status_code == 200, r.text
+    assert r.json()["datasets_deleted"] == 1
+    assert r.json()["dashboards_deleted"] == 1
+
+    # Everything gone; account still usable
+    assert client.get("/api/datasets").json()["datasets"] == []
+    assert client.get("/api/dashboards").json()["dashboards"] == []
 
 
 def test_dashboard_share_with_colleague(monkeypatch):
