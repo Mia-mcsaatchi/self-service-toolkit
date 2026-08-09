@@ -213,6 +213,20 @@
     .verbatims-wrap { max-height: 200px; overflow-y: auto; border-radius: 6px; border: 1px solid var(--border); }
     .verbatims-wrap table { font-size: 11px; }
     .verbatims-wrap td { white-space: normal; word-break: break-word; max-width: 320px; }
+    /* Dashboard: KPI tiles, filters, manual picker */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .kpi-tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; }
+    .kpi-value { font-size: 24px; font-weight: 700; color: var(--ink); font-family: 'DM Mono', monospace; line-height: 1.1; }
+    .kpi-label { font-size: 10px; color: var(--ink-muted); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.05em; font-family: 'DM Mono', monospace; }
+    .filter-bar, .chart-picker { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px; border-radius: var(--radius-lg); margin-bottom: 16px; }
+    .filter-bar { background: var(--surface2); border: 1px solid var(--border); }
+    .chart-picker { border: 1px dashed var(--border-strong); }
+    .filter-item { display: flex; flex-direction: column; gap: 4px; }
+    .filter-item label { font-size: 10px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.05em; font-family: 'DM Mono', monospace; }
+    .filter-item select, .filter-item input { min-width: 130px; padding: 6px 10px; font-size: 12px; width: auto; }
+    .chart-card { position: relative; }
+    .chart-remove { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--ink-muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 3px 7px; border-radius: 5px; z-index: 2; }
+    .chart-remove:hover { background: var(--surface2); color: var(--red); }
     .analytics-loading { text-align: center; padding: 32px; color: var(--ink-muted); font-size: 12px; font-family: 'DM Mono', monospace; }
     .analytics-loading .spinner { margin: 0 auto 12px; width: 20px; height: 20px; }
     .analytics-loading p { margin-top: 8px; }
@@ -452,12 +466,23 @@
 
       <!-- Dashboard output -->
       <div id="dashboardOutput" class="hidden" style="margin-top:24px;">
+
+        <!-- KPI tiles -->
+        <div id="kpiTiles" class="kpi-row"></div>
+
+        <!-- Interactive filter bar -->
+        <div id="filterBar" class="filter-bar hidden"></div>
+
         <div id="executiveSummaryWrap" class="hidden">
           <div class="executive-summary">
             <div class="exec-title">Executive summary</div>
             <ul class="exec-bullets" id="summaryBullets"></ul>
           </div>
         </div>
+
+        <!-- Manual "add a chart" builder -->
+        <div id="chartPicker" class="chart-picker"></div>
+
         <div class="chart-grid" id="chartGrid"></div>
         <div style="margin-top:16px;">
           <button class="btn btn-ghost btn-sm" onclick="resetDashboard()">↩ Start over</button>
@@ -1139,6 +1164,18 @@ const STOPWORDS = new Set(['the','a','an','and','or','but','in','on','at','to','
 let _chartInstances = {};
 let _resultColumns = [];
 let _allRows = [];
+// Interactive dashboard state
+let _dashCharts = [];        // chart configs currently on the board (AI + manual)
+let _dashTaglines = {};      // label -> AI insight line (from full dataset)
+let _activeFilters = {};     // column -> selected value
+let _filterCols = [];        // [{col, values}] detected categorical filters
+let _dateFilterCol = null;   // detected date column for range filter
+let _dateRange = { from: null, to: null };
+
+function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function looksSentiment(col){ return !!col && col.toLowerCase().includes('sentiment'); }
+function distinctCount(rows, col){ return new Set(rows.map(r => (r[col]||'').trim()).filter(v => v && v!=='n/a' && v!=='nan')).size; }
+function topCategories(rows, col, n){ return Object.keys(countValues(rows, col)).slice(0, n); }
 
 function unlockAnalytics(columns) {
   _resultColumns = columns;
@@ -1266,11 +1303,15 @@ async function generateDashboard() {
     const ad = await ar.json();
     if (!ar.ok) throw new Error(ad.detail || 'Analysis failed');
 
-    // Step 5: render
+    // Step 5: render an interactive board (KPIs + filters + charts)
+    _dashCharts = chartConfigs.map(c => ({ type: c.type, column: c.column, label: c.label, series: c.series }));
+    _dashTaglines = ad.chart_taglines || {};
     document.getElementById('dashboardLoading').classList.add('hidden');
     document.getElementById('dashboardOutput').classList.remove('hidden');
     renderExecutiveSummary(ad.executive_summary);
-    renderCharts(charts, ad.chart_taglines, _allRows);
+    buildFilterBar();
+    buildManualPicker();
+    renderDashboard();
 
   } catch(e) {
     document.getElementById('dashboardLoading').classList.add('hidden');
@@ -1286,8 +1327,13 @@ function resetDashboard() {
   document.getElementById('dashboardOutput').classList.add('hidden');
   document.getElementById('analyticsIntent').value = '';
   document.getElementById('chartGrid').innerHTML = '';
+  document.getElementById('kpiTiles').innerHTML = '';
+  document.getElementById('filterBar').innerHTML = '';
+  document.getElementById('chartPicker').innerHTML = '';
   Object.values(_chartInstances).forEach(c => c.destroy());
   _chartInstances = {};
+  _dashCharts = []; _dashTaglines = {}; _activeFilters = {}; _filterCols = [];
+  _dateFilterCol = null; _dateRange = { from: null, to: null };
 }
 
 // ── Column type helpers ───────────────────────────────────────────────────────
@@ -1316,7 +1362,21 @@ function buildChartData(cfg, rows) {
       summary: { labels: ts.labels, values: ts.values, total: rows.length },
       timeSeries: ts };
   }
-  // bar, sentiment_bar, pie
+  if (type === 'stacked') {
+    const seriesCol = cfg.series;
+    const xcats = topCategories(rows, column, 12);
+    const scats = topCategories(rows, seriesCol, 8);
+    const matrix = {};
+    scats.forEach(s => matrix[s] = xcats.map(() => 0));
+    for (const row of rows) {
+      const xi = xcats.indexOf((row[column]||'').trim());
+      const si = scats.indexOf((row[seriesCol]||'').trim());
+      if (xi >= 0 && si >= 0) matrix[scats[si]][xi]++;
+    }
+    return { type, column, series: seriesCol, label,
+      summary: { xcats, scats, total: rows.length }, xcats, scats, matrix };
+  }
+  // bar, sentiment_bar, hbar, pie, donut
   const counts = countValues(rows, column);
   return { type, column, label,
     summary: { counts, total: rows.length },
@@ -1378,47 +1438,57 @@ function sentimentColour(label) {
 function renderCharts(charts, taglines, allRows) {
   const grid = document.getElementById('chartGrid');
   grid.innerHTML = '';
+  if (!charts.length) {
+    grid.innerHTML = '<div style="color:var(--ink-muted);font-size:12px;padding:24px;font-family:\'DM Mono\',monospace;">No charts yet — use “+ Add chart” above, or Start over to ask the AI.</div>';
+    return;
+  }
 
-  for (const chart of charts) {
+  charts.forEach(chart => {
+    const idx = chart.idx;
     const card = document.createElement('div');
     card.className = 'chart-card';
     const tagline = (taglines && taglines[chart.label]) || '';
-    const safeId = 'chart-' + chart.column.replace(/\W/g,'_') + '-' + chart.type;
+    const safeId = 'chart-' + idx + '-' + chart.type;
+    const head = '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>' +
+      '<div class="chart-title">'+escapeHtml(chart.label)+'</div>' +
+      '<div class="chart-tagline">'+escapeHtml(tagline)+'</div>';
 
     if (chart.type === 'wordcloud') {
-      card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div><div class="wordcloud-wrap" id="wc-'+safeId+'"></div>';
+      card.innerHTML = head + '<div class="wordcloud-wrap" id="wc-'+safeId+'"></div>';
       grid.appendChild(card);
-      renderWordCloud('wc-'+safeId, chart.wordFreq);
-      continue;
+      renderWordCloud('wc-'+safeId, chart.wordFreq || buildWordFrequency(allRows, chart.column));
+      return;
     }
     if (chart.type === 'verbatims') {
-      const sample = (chart.rows||allRows).slice(0,10);
-      card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div>' +
-        '<div class="verbatims-wrap"><table><thead><tr><th>#</th><th>'+chart.column+'</th></tr></thead><tbody>' +
-        sample.map((r,i) => '<tr><td>'+(i+1)+'</td><td>'+(r[chart.column]||'').slice(0,200)+'</td></tr>').join('') +
+      const sample = (chart.rows || allRows).slice(0,10);
+      card.innerHTML = head +
+        '<div class="verbatims-wrap"><table><thead><tr><th>#</th><th>'+escapeHtml(chart.column)+'</th></tr></thead><tbody>' +
+        sample.map((r,i) => '<tr><td>'+(i+1)+'</td><td>'+escapeHtml((r[chart.column]||'').slice(0,200))+'</td></tr>').join('') +
         '</tbody></table></div>';
       grid.appendChild(card);
-      continue;
+      return;
     }
 
-    card.innerHTML = '<div class="chart-title">'+chart.label+'</div><div class="chart-tagline">'+tagline+'</div><div class="chart-canvas-wrap"><canvas id="'+safeId+'"></canvas></div>';
+    card.innerHTML = head + '<div class="chart-canvas-wrap"><canvas id="'+safeId+'"></canvas></div>';
     grid.appendChild(card);
     const ctx = document.getElementById(safeId)?.getContext('2d');
-    if (!ctx) continue;
+    if (!ctx) return;
 
     let instance;
-    if (chart.type === 'sentiment_bar' || chart.type === 'bar') {
-      const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
-      const colours = chart.type==='sentiment_bar' ? labels.map(sentimentColour) : labels.map((_,i)=>PALETTE[i%PALETTE.length]);
-      instance = new Chart(ctx, { type:'bar',
-        data:{ labels, datasets:[{ data:values, backgroundColor:colours, borderRadius:4 }] },
+    if (chart.type === 'stacked') {
+      const datasets = chart.scats.map((s,i) => ({
+        label: s, data: chart.matrix[s], borderRadius: 3,
+        backgroundColor: looksSentiment(chart.series) ? sentimentColour(s) : PALETTE[i%PALETTE.length],
+      }));
+      instance = new Chart(ctx, { type:'bar', data:{ labels: chart.xcats, datasets },
         options:{ responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{ display:false } },
-          scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } }, x:{ ticks:{ maxRotation:45 } } } } });
-    } else if (chart.type === 'pie') {
+          plugins:{ legend:{ position:'bottom', labels:{ font:{ size:10 }, boxWidth:12 } } },
+          scales:{ x:{ stacked:true, ticks:{ maxRotation:45 } }, y:{ stacked:true, beginAtZero:true, ticks:{ precision:0 } } } } });
+    } else if (chart.type === 'pie' || chart.type === 'donut') {
       const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
+      const colours = labels.map((l,i) => looksSentiment(chart.column) ? sentimentColour(l) : PALETTE[i%PALETTE.length]);
       instance = new Chart(ctx, { type:'doughnut',
-        data:{ labels, datasets:[{ data:values, backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length]) }] },
+        data:{ labels, datasets:[{ data:values, backgroundColor:colours }] },
         options:{ responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{ position:'right', labels:{ font:{ size:10 }, boxWidth:12 } } } } });
     } else if (chart.type === 'line') {
@@ -1428,10 +1498,150 @@ function renderCharts(charts, taglines, allRows) {
         options:{ responsive:true, maintainAspectRatio:false,
           plugins:{ legend:{ display:false } },
           scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
+    } else { // bar, sentiment_bar, hbar
+      const labels = Object.keys(chart.counts), values = Object.values(chart.counts);
+      const horizontal = chart.type === 'hbar';
+      const colours = (chart.type === 'sentiment_bar' || looksSentiment(chart.column))
+        ? labels.map(sentimentColour) : labels.map((_,i) => PALETTE[i%PALETTE.length]);
+      instance = new Chart(ctx, { type:'bar',
+        data:{ labels, datasets:[{ data:values, backgroundColor:colours, borderRadius:4 }] },
+        options:{ indexAxis: horizontal ? 'y' : 'x', responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ display:false } },
+          scales:{ x:{ beginAtZero:horizontal, ticks:{ maxRotation:45, precision:0 } },
+                   y:{ beginAtZero:!horizontal, ticks:{ precision:0 } } } } });
     }
     if (instance) _chartInstances[safeId] = instance;
-  }
+  });
 }
+
+// ── Interactive dashboard: KPI tiles, filters, manual chart picker ───────────
+function renderDashboard() {
+  const filtered = applyFilters(_allRows);
+  renderKpis(filtered);
+  Object.values(_chartInstances).forEach(c => c.destroy());
+  _chartInstances = {};
+  const built = _dashCharts.map((cfg, i) => { const b = buildChartData(cfg, filtered); b.idx = i; return b; });
+  renderCharts(built, _dashTaglines, filtered);
+}
+
+function applyFilters(rows) {
+  let out = rows;
+  for (const [col, val] of Object.entries(_activeFilters)) {
+    out = out.filter(r => (r[col]||'').trim() === val);
+  }
+  if (_dateFilterCol && (_dateRange.from || _dateRange.to)) {
+    const from = _dateRange.from ? new Date(_dateRange.from) : null;
+    const to = _dateRange.to ? new Date(_dateRange.to) : null;
+    out = out.filter(r => {
+      const d = new Date(r[_dateFilterCol]);
+      if (isNaN(d)) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    });
+  }
+  return out;
+}
+
+function renderKpis(rows) {
+  const tiles = [{ label: 'Mentions', value: rows.length.toLocaleString() }];
+  const sentCol = _resultColumns.find(c => looksSentiment(c));
+  if (sentCol) {
+    const counts = countValues(rows, sentCol);
+    const total = Object.values(counts).reduce((a,b) => a+b, 0);
+    const pos = Object.entries(counts).filter(([k]) => k.toLowerCase().includes('pos')).reduce((a,[,v]) => a+v, 0);
+    if (total) tiles.push({ label: '% Positive', value: Math.round(pos/total*100) + '%' });
+  }
+  const topicCol = _resultColumns.find(c => ['topic','category'].some(h => c.toLowerCase().includes(h)));
+  if (topicCol) tiles.push({ label: 'Topics', value: distinctCount(rows, topicCol) });
+  const geoCol = _resultColumns.find(c => ['country','market','location'].some(h => c.toLowerCase().includes(h)));
+  if (geoCol) tiles.push({ label: 'Markets', value: distinctCount(rows, geoCol) });
+  document.getElementById('kpiTiles').innerHTML = tiles.slice(0,5).map(t =>
+    '<div class="kpi-tile"><div class="kpi-value">'+escapeHtml(t.value)+'</div><div class="kpi-label">'+escapeHtml(t.label)+'</div></div>').join('');
+}
+
+function detectFilterColumns() {
+  const cols = [];
+  for (const col of _resultColumns) {
+    const vals = [...new Set(_allRows.map(r => (r[col]||'').trim()).filter(v => v && v!=='n/a' && v!=='nan'))];
+    if (vals.length >= 2 && vals.length <= 30) cols.push({ col, values: vals.sort() });
+  }
+  const priority = ['sentiment','country','topic','language','category','source','platform','brand','model','eu5','eu7'];
+  cols.sort((a,b) => {
+    const rank = c => { const i = priority.findIndex(p => c.toLowerCase().includes(p)); return i < 0 ? 99 : i; };
+    return rank(a.col) - rank(b.col);
+  });
+  return cols.slice(0, 6);
+}
+
+function buildFilterBar() {
+  _activeFilters = {};
+  _dateRange = { from: null, to: null };
+  _filterCols = detectFilterColumns();
+  _dateFilterCol = _resultColumns.find(c => isLikelyDatetime(c, _allRows)) || null;
+
+  let html = _filterCols.map((fc, i) =>
+    '<div class="filter-item"><label>'+escapeHtml(fc.col)+'</label>' +
+    '<select onchange="setFilter('+i+', this.value)"><option value="">All</option>' +
+    fc.values.map(v => '<option value="'+escapeHtml(v)+'">'+escapeHtml(v)+'</option>').join('') +
+    '</select></div>').join('');
+  if (_dateFilterCol) {
+    html += '<div class="filter-item"><label>'+escapeHtml(_dateFilterCol)+' from</label><input type="date" onchange="setDateFilter(\'from\', this.value)"></div>' +
+            '<div class="filter-item"><label>to</label><input type="date" onchange="setDateFilter(\'to\', this.value)"></div>';
+  }
+  if (_filterCols.length || _dateFilterCol) {
+    html += '<button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear filters</button>';
+  }
+  const bar = document.getElementById('filterBar');
+  bar.innerHTML = html;
+  bar.classList.toggle('hidden', !html);
+}
+
+function setFilter(i, value) {
+  const col = _filterCols[i].col;
+  if (value === '') delete _activeFilters[col]; else _activeFilters[col] = value;
+  renderDashboard();
+}
+function setDateFilter(which, value) { _dateRange[which] = value || null; renderDashboard(); }
+function clearFilters() { buildFilterBar(); renderDashboard(); }
+
+function buildManualPicker() {
+  const colOpts = _resultColumns.map(c => '<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>').join('');
+  document.getElementById('chartPicker').innerHTML =
+    '<div class="filter-item"><label>Add a chart — column</label><select id="pickCol">'+colOpts+'</select></div>' +
+    '<div class="filter-item"><label>Chart type</label><select id="pickType" onchange="togglePickSeries()">' +
+      '<option value="bar">Bar</option>' +
+      '<option value="hbar">Top-N (horizontal bar)</option>' +
+      '<option value="pie">Pie / donut</option>' +
+      '<option value="stacked">Cross-tab (stacked)</option>' +
+      '<option value="line">Line (over time)</option>' +
+      '<option value="wordcloud">Word cloud</option>' +
+      '<option value="verbatims">Sample verbatims</option>' +
+    '</select></div>' +
+    '<div class="filter-item" id="pickSeriesWrap" style="display:none;"><label>Split by</label><select id="pickSeries">'+colOpts+'</select></div>' +
+    '<button class="btn btn-primary btn-sm" onclick="addManualChart()">+ Add chart</button>';
+}
+
+function togglePickSeries() {
+  document.getElementById('pickSeriesWrap').style.display =
+    document.getElementById('pickType').value === 'stacked' ? 'flex' : 'none';
+}
+
+function addManualChart() {
+  const column = document.getElementById('pickCol').value;
+  const type = document.getElementById('pickType').value;
+  if (!column) return;
+  const labels = { bar:'Breakdown of', hbar:'Top values —', pie:'Share of', line:'Volume over time —', wordcloud:'Word cloud —', verbatims:'Sample verbatims —' };
+  const cfg = { type, column, label: (labels[type] || '') + ' ' + column };
+  if (type === 'stacked') {
+    cfg.series = document.getElementById('pickSeries').value;
+    cfg.label = column + ' × ' + cfg.series;
+  }
+  _dashCharts.push(cfg);
+  renderDashboard();
+}
+
+function removeChart(idx) { _dashCharts.splice(idx, 1); renderDashboard(); }
 
 function renderWordCloud(containerId, wordFreq) {
   const container = document.getElementById(containerId);
