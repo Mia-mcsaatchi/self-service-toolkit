@@ -105,6 +105,23 @@
     .callout strong { font-weight: 600; display: block; margin-bottom: 4px; }
     .page-footer { text-align: center; margin-top: 64px; font-size: 11px; color: var(--ink-dim); font-family: 'DM Mono', monospace; }
     .page-footer a { color: inherit; }
+    /* dashboard demo mockups */
+    .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    @media (max-width: 560px) { .demo-grid { grid-template-columns: 1fr; } }
+    .demo-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; position: relative; }
+    .demo-ctrls { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
+    .demo-pill { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; font-size: 10px; font-family: 'DM Mono', monospace; color: var(--ink-muted); padding: 2px 7px; }
+    .demo-ctitle { font-size: 12px; font-weight: 600; margin-bottom: 2px; padding-right: 90px; }
+    .demo-ctag { font-size: 10px; color: var(--ink-muted); font-style: italic; margin-bottom: 8px; }
+    .demo-legend { display: flex; gap: 12px; justify-content: center; margin-top: 8px; font-size: 10px; font-family: 'DM Mono', monospace; color: var(--ink-muted); }
+    .demo-legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .demo-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+    .exec-mini { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px; }
+    .exec-mini .s-label { margin-bottom: 6px; }
+    .exec-mini ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; }
+    .slide-row { display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .slide { flex: 0 0 auto; width: 150px; aspect-ratio: 16/9; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 9px; color: var(--ink-muted); font-family: 'DM Mono', monospace; }
+    .slide b { display: block; color: var(--ink); font-size: 10px; margin-bottom: 4px; font-family: 'Geist', sans-serif; }
   </style>
 </head>
 <body>
@@ -147,6 +164,8 @@
     <a href="#dashboard">The analytics dashboard</a>
     <div class="toc-sub">
       <a href="#dash-build">Building a dashboard</a>
+      <a href="#dash-controls">Customising charts</a>
+      <a href="#dash-export">Export to slides</a>
       <a href="#dash-uc">Dashboard use cases</a>
     </div>
     <a href="#sharing">Sharing &amp; publishing</a>
@@ -438,17 +457,107 @@
   <p>If the Conditional button appears greyed out with a tooltip, it means your data has no categorical columns — all columns have more than 30 unique values. Check that columns like <code>overall_sentiment</code>, <code>language</code>, or <code>country_code</code> are included in your file.</p>
 
   <h2 id="dashboard">The analytics dashboard</h2>
-  <p>Once your data is loaded (either freshly enriched in Step 3, or opened from a saved dataset), you can turn it into an interactive dashboard — KPI tiles, filters, and charts with AI-written headlines — without writing any code.</p>
+  <p>Once your data is loaded (freshly enriched in Step 3, or opened from a saved dataset), you can turn it into an interactive dashboard — KPI tiles, filters, and charts with AI-written headlines — without writing any code.</p>
 
   <h3 id="dash-build">Building a dashboard</h3>
-  <p>In the analytics step, describe what you want to explore in plain English — for example <em>"sentiment by country over time, and the most common topics"</em>. The tool interprets your request, computes the numbers from 100% of your rows, and lays out:</p>
-  <p>
-    • An <strong>executive summary</strong> — 4–5 headline bullets grounded in the real counts.<br>
-    • <strong>KPI tiles</strong> and <strong>filters</strong> so you can slice the data live.<br>
-    • <strong>Charts</strong> — cross-tab and stacked bars, donuts, time-series lines, and word clouds — each with a one-line analyst tagline.
-  </p>
-  <p>You can also use the manual chart builder to pick any two columns and toggle between counts and percentages. Charts respect the filters you set at the top of the board.</p>
+  <p>Describe what you want to explore in plain English. The tool interprets your request, computes the numbers from 100% of your rows, and lays out an executive summary, KPI tiles, and charts — each with a one-line analyst tagline.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div><span class="ui-url">mia-mcsaatchi.github.io/self-service-toolkit</span></div>
+    <div class="ui-body">
+      <span class="s-label">What do you want to explore?</span>
+      <div class="s-input">sentiment by country, and the most common topics</div>
+      <div class="s-btn s-btn-dark" style="margin-top:8px;">Generate dashboard</div>
+
+      <div class="s-stats" style="margin-top:18px;">
+        <div class="s-stat"><div class="s-stat-val">367</div><div class="s-stat-label">Mentions</div></div>
+        <div class="s-stat"><div class="s-stat-val">44%</div><div class="s-stat-label">Positive</div></div>
+        <div class="s-stat"><div class="s-stat-val">33%</div><div class="s-stat-label">Negative</div></div>
+        <div class="s-stat"><div class="s-stat-val">5</div><div class="s-stat-label">Markets</div></div>
+      </div>
+
+      <div class="exec-mini">
+        <span class="s-label">Executive summary</span>
+        <ul>
+          <li>Positive sentiment leads at 44% across 367 mentions.</li>
+          <li>Negatives cluster on delivery delays, strongest in GB.</li>
+        </ul>
+      </div>
+
+      <div class="demo-grid">
+        <div class="demo-card">
+          <div class="demo-ctrls"><span class="demo-pill">Bar ↕ ▾</span><span class="demo-pill">#</span><span class="demo-pill">▤</span></div>
+          <div class="demo-ctitle">Sentiment by country</div>
+          <div class="demo-ctag">UK leads on positive advocacy</div>
+          <svg viewBox="0 0 300 160" width="100%" role="img" aria-label="Stacked bar: sentiment by country">
+            <g>
+              <!-- UK --><rect x="22" y="88" width="32" height="52" fill="#1a7a4a"/><rect x="22" y="58" width="32" height="30" fill="#b91c1c"/><rect x="22" y="40" width="32" height="18" fill="#b5b2aa"/>
+              <!-- US --><rect x="78" y="94" width="32" height="46" fill="#1a7a4a"/><rect x="78" y="60" width="32" height="34" fill="#b91c1c"/><rect x="78" y="40" width="32" height="20" fill="#b5b2aa"/>
+              <!-- FR --><rect x="134" y="100" width="32" height="40" fill="#1a7a4a"/><rect x="134" y="74" width="32" height="26" fill="#b91c1c"/><rect x="134" y="50" width="32" height="24" fill="#b5b2aa"/>
+              <!-- DE --><rect x="190" y="84" width="32" height="56" fill="#1a7a4a"/><rect x="190" y="64" width="32" height="20" fill="#b91c1c"/><rect x="190" y="50" width="32" height="14" fill="#b5b2aa"/>
+              <!-- ES --><rect x="246" y="96" width="32" height="44" fill="#1a7a4a"/><rect x="246" y="66" width="32" height="30" fill="#b91c1c"/><rect x="246" y="50" width="32" height="16" fill="#b5b2aa"/>
+              <line x1="14" y1="140" x2="290" y2="140" stroke="#e2dfd8"/>
+              <text x="38" y="153" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">UK</text>
+              <text x="94" y="153" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">US</text>
+              <text x="150" y="153" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">FR</text>
+              <text x="206" y="153" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">DE</text>
+              <text x="262" y="153" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">ES</text>
+            </g>
+          </svg>
+          <div class="demo-legend"><span><i style="background:#1a7a4a"></i>positive</span><span><i style="background:#b91c1c"></i>negative</span><span><i style="background:#b5b2aa"></i>neutral</span></div>
+        </div>
+
+        <div class="demo-card">
+          <div class="demo-ctrls"><span class="demo-pill">Donut ▾</span><span class="demo-pill">%</span></div>
+          <div class="demo-ctitle">Share of sentiment</div>
+          <div class="demo-ctag">A third of mentions are negative</div>
+          <svg viewBox="0 0 160 160" width="100%" style="max-height:170px;" role="img" aria-label="Donut: share of sentiment">
+            <g transform="rotate(-90 80 80)" fill="none" stroke-width="24">
+              <circle cx="80" cy="80" r="54" stroke="#1a7a4a" stroke-dasharray="149.3 190"/>
+              <circle cx="80" cy="80" r="54" stroke="#b91c1c" stroke-dasharray="111.9 227.4" stroke-dashoffset="-149.3"/>
+              <circle cx="80" cy="80" r="54" stroke="#b5b2aa" stroke-dasharray="78 261.3" stroke-dashoffset="-261.2"/>
+            </g>
+            <text x="80" y="78" font-size="22" font-weight="700" fill="#1a1a1a" text-anchor="middle">44%</text>
+            <text x="80" y="94" font-size="9" fill="#6b6760" text-anchor="middle" font-family="monospace">positive</text>
+          </svg>
+          <div class="demo-legend"><span><i style="background:#1a7a4a"></i>44%</span><span><i style="background:#b91c1c"></i>33%</span><span><i style="background:#b5b2aa"></i>23%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p>You can also add charts manually — pick any column, optionally break it down by a second column, and choose a chart type. Filters at the top of the board apply to every chart at once.</p>
   <div class="callout c-tip"><strong>Numbers you can trust</strong>The counts and percentages are computed directly from your data — the AI only writes the narration around them, so it never invents figures.</div>
+
+  <h3 id="dash-controls">Customising charts</h3>
+  <p>Every chart has its own controls in the top-right corner — change it on the spot, no rebuilding:</p>
+  <p>
+    • <strong>Type / layout</strong> dropdown — Bar ↕ (vertical), Bar ↔ (horizontal), Pie, Donut, Line.<br>
+    • <strong>#&nbsp;/&nbsp;%</strong> — switch between raw counts and percentages.<br>
+    • <strong>▤&nbsp;/&nbsp;▦</strong> — stacked or grouped, for cross-tab (broken-down) bars.
+  </p>
+  <div class="callout c-note"><strong>Viewers can explore too</strong>People you share a dashboard with get the same chart controls — they can re-type charts and switch count/percent to explore — but they can't delete charts or change your saved board.</div>
+
+  <h3 id="dash-export">Export to slides</h3>
+  <p>Click <strong>Export deck</strong> under the charts to turn the current board into a ready-to-present deck — a title slide, the executive summary, then one slide per chart (with its tagline). It reflects your current filters and chosen chart types.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span class="s-label" style="margin:0;">Export deck:</span>
+        <span class="s-btn s-btn-ghost">⬇ PowerPoint</span>
+        <span class="s-btn s-btn-ghost">⬇ HTML</span>
+      </div>
+      <div class="slide-row">
+        <div class="slide"><b>Brand Health — Q3</b>M&amp;C Saatchi — Data Team · 2026</div>
+        <div class="slide"><b>Executive summary</b>• Positive leads at 44%…<br>• Negatives cluster on delays…</div>
+        <div class="slide"><b>Sentiment by country</b>▤▤▤▤▤<br><span style="opacity:.7">UK leads on advocacy</span></div>
+        <div class="slide"><b>Share of sentiment</b>◕<br><span style="opacity:.7">A third negative</span></div>
+      </div>
+    </div>
+  </div>
+  <p><strong>PowerPoint (.pptx)</strong> gives editable slides your team opens in PowerPoint or Keynote. <strong>HTML</strong> is a single self-contained file that opens in any browser and prints cleanly to PDF.</p>
 
   <h3 id="dash-uc">Dashboard use cases</h3>
   <p><strong>Brand health readout</strong> — sentiment split overall and by market, with the sharpest verbatims surfaced as a word cloud. Publish a read-only link for the weekly stand-up.</p>
@@ -456,20 +565,57 @@
   <p><strong>Crisis triage</strong> — filter to negative sentiment, read the top verbatims, and share the board with the account team in one click.</p>
 
   <h2 id="sharing">Sharing &amp; publishing</h2>
-  <p>After you build a dashboard, click <strong>Save dashboard</strong> and give it a name. A saved dashboard stores a snapshot of the data, so the charts stay exactly as you left them. There are then two ways to share it:</p>
-  <p><strong>Public read-only link</strong> — toggle <em>Publish</em> to on and copy the link (it ends in <code>?view=…</code>). Anyone with the link can view the dashboard read-only, no sign-in required. Toggle it off at any time to revoke access.</p>
-  <p><strong>Share with a colleague</strong> — enter a colleague's <code>@mcsaatchi.com</code> email. The dashboard then appears in their <em>Shared with me</em> list when they sign in — they don't need the link.</p>
-  <div class="callout c-warn"><strong>Snapshots are point-in-time</strong>A shared dashboard shows the data as it was when you saved it. If you re-run or update the underlying data, re-save (and re-publish) the dashboard to refresh what others see.</div>
+  <p>Click <strong>Save dashboard</strong> and give it a name. A saved dashboard stores a snapshot of the data, so the charts stay exactly as you left them. Then share it two ways:</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div class="s-input" style="margin:0;flex:1;min-width:160px;">Brand Health — Q3</div>
+        <span class="s-btn s-btn-dark">💾 Save dashboard</span>
+        <span style="font-size:11px;color:var(--green);font-family:'DM Mono',monospace;">✓ Saved</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;">
+        <span class="badge b-blue">☑ Public read-only link</span>
+        <div class="s-input" style="margin:0;flex:1;min-width:160px;">…/self-service-toolkit/?view=8f3a1c…</div>
+        <span class="s-btn s-btn-ghost">Copy</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+        <div class="s-input" style="margin:0;flex:1;min-width:160px;">colleague@mcsaatchi.com</div>
+        <span class="s-btn s-btn-ghost">Share with colleague</span>
+      </div>
+    </div>
+  </div>
+
+  <p><strong>Public read-only link</strong> — toggle <em>Publish</em> on and copy the link (it ends in <code>?view=…</code>). Anyone with the link views it read-only, no sign-in required. Toggle off any time to revoke access.</p>
+  <p><strong>Share with a colleague</strong> — enter a colleague's <code>@mcsaatchi.com</code> email; the dashboard then appears in their <em>Shared with me</em> list when they sign in — no link needed.</p>
+  <div class="callout c-warn"><strong>Snapshots are point-in-time</strong>A shared dashboard shows the data as it was when you saved it. If you re-run or update the data, re-save (and re-publish) to refresh what others see.</div>
 
   <h2 id="account">Managing your account</h2>
-  <p>Click your email in the top-right corner to open <strong>Your account</strong>. From there you can:</p>
-  <p>
-    • See your <strong>saved datasets</strong> and <strong>saved dashboards</strong>, and open or delete any of them.<br>
-    • See dashboards <strong>shared with you</strong> by colleagues.<br>
-    • <strong>Set or change your password</strong> — useful if you signed in with a magic link and now want a password.<br>
-    • <strong>Delete all your data</strong> — permanently removes every saved dataset and dashboard. Your account stays active; this cannot be undone.<br>
-    • <strong>Sign out</strong>.
-  </p>
+  <p>Click your email in the top-right corner to open <strong>Your account</strong> — the one place for everything you've saved.</p>
+
+  <div class="ui-frame">
+    <div class="ui-bar"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
+    <div class="ui-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <strong style="font-size:13px;">Your account</strong><span class="s-btn s-btn-ghost">✕ Close</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <div style="width:34px;height:34px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;">M</div>
+        <div style="flex:1;"><div style="font-size:12px;font-weight:600;">mia.nguyen@mcsaatchi.com</div><div style="font-size:10px;color:var(--ink-muted);font-family:'DM Mono',monospace;">Signed in via magic link</div></div>
+        <span class="s-btn s-btn-ghost">Sign out</span>
+      </div>
+      <span class="s-label">📁 Saved datasets</span>
+      <div class="s-input" style="display:flex;justify-content:space-between;align-items:center;">test · 59 rows <span style="color:var(--ink-dim);">Load · Delete</span></div>
+      <span class="s-label" style="margin-top:10px;">📊 Saved dashboards</span>
+      <div class="s-input" style="display:flex;justify-content:space-between;align-items:center;">Brand Health — Q3 &nbsp;<span class="badge b-blue" style="padding:0 6px;">public</span> <span style="color:var(--ink-dim);margin-left:auto;">Open · Delete</span></div>
+      <span class="s-label" style="margin-top:10px;">🔑 Password</span>
+      <div style="display:flex;gap:8px;align-items:center;"><div class="s-input" style="margin:0;flex:1;">New password (min 8 chars)</div><span class="s-btn s-btn-dark">Update</span></div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);"><span class="s-btn" style="background:#fff;border:1px solid var(--red-border);color:var(--red);">⚠ Delete all my data</span></div>
+    </div>
+  </div>
+
+  <p>From the account panel you can open or delete <strong>saved datasets</strong> and <strong>dashboards</strong>, see dashboards <strong>shared with you</strong>, <strong>set or change a password</strong> (handy if you sign in by magic link), <strong>delete all your data</strong> (permanent; your account stays active), and <strong>sign out</strong>.</p>
 
   <div class="page-footer">M&C Saatchi — Data Team — Self-Service Toolkit &nbsp;·&nbsp; <a href="../">Open toolkit</a></div>
 
