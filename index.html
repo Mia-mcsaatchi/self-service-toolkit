@@ -314,6 +314,14 @@
         <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">📁 Your saved datasets</div>
         <div id="myDatasetsList"></div>
       </div>
+      <div id="myDashboardsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
+        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">📊 Your dashboards</div>
+        <div id="myDashboardsList"></div>
+      </div>
+      <div id="sharedDashboardsPanel" class="hidden" style="margin-bottom:18px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
+        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px;font-family:'DM Mono',monospace;">🔗 Shared with you</div>
+        <div id="sharedDashboardsList"></div>
+      </div>
       <div class="tabs">
         <button class="tab active" onclick="switchTab('file')">Upload file</button>
         <button class="tab" onclick="switchTab('gsheet')">Google Sheet</button>
@@ -495,7 +503,26 @@
         <div id="chartPicker" class="chart-picker"></div>
 
         <div class="chart-grid" id="chartGrid"></div>
-        <div style="margin-top:16px;">
+
+        <!-- Save / publish / share (Phase C) -->
+        <div id="dashboardActions" class="hidden" style="margin-top:16px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input id="dashName" placeholder="Name this dashboard…" style="max-width:240px;width:auto;">
+            <button class="btn btn-primary btn-sm" onclick="saveDashboard()">💾 Save dashboard</button>
+            <span id="dashSaveStatus" style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;"></span>
+          </div>
+          <div id="dashShareBox" class="hidden" style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:12px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="dashPublic" onchange="togglePublish()" style="width:auto;"> Public read-only link</label>
+            <input id="dashLink" readonly placeholder="Turn on the link above" style="max-width:340px;width:auto;font-size:11px;font-family:'DM Mono',monospace;">
+            <button class="btn btn-ghost btn-sm" onclick="copyDashLink()">Copy</button>
+            <span style="color:var(--border-strong);">|</span>
+            <input id="shareEmail" placeholder="colleague@mcsaatchi.com" style="max-width:210px;width:auto;">
+            <button class="btn btn-ghost btn-sm" onclick="shareDash()">Share with colleague</button>
+            <span id="shareStatus" style="font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;"></span>
+          </div>
+        </div>
+
+        <div id="startOverRow" style="margin-top:16px;">
           <button class="btn btn-ghost btn-sm" onclick="resetDashboard()">↩ Start over</button>
         </div>
       </div>
@@ -1182,6 +1209,8 @@ let _activeFilters = {};     // column -> selected value
 let _filterCols = [];        // [{col, values}] detected categorical filters
 let _dateFilterCol = null;   // detected date column for range filter
 let _dateRange = { from: null, to: null };
+let _viewMode = false;       // read-only public view (?view=<token>)
+let _currentDashboard = null;// {id, share_token, is_public} once saved/opened
 
 function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function looksSentiment(col){ return !!col && col.toLowerCase().includes('sentiment'); }
@@ -1323,6 +1352,8 @@ async function generateDashboard() {
     buildFilterBar();
     buildManualPicker();
     renderDashboard();
+    _currentDashboard = null;
+    showDashboardActions();
 
   } catch(e) {
     document.getElementById('dashboardLoading').classList.add('hidden');
@@ -1492,7 +1523,7 @@ function renderCharts(charts, taglines, allRows) {
     const controls =
       (supportsMeasure ? '<button class="chart-toggle" title="Count / percent" onclick="toggleMeasure('+idx+')">'+(measure==='percent'?'%':'#')+'</button>' : '') +
       (chart.twoDim ? '<button class="chart-toggle" title="Stacked / grouped" onclick="toggleBarmode('+idx+')">'+(chart.barmode==='grouped'?'▦':'▤')+'</button>' : '') +
-      '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>';
+      (_viewMode ? '' : '<button class="chart-remove" title="Remove chart" onclick="removeChart('+idx+')">✕</button>');
     const head = '<div class="chart-controls">'+controls+'</div>' +
       '<div class="chart-title">'+escapeHtml(chart.label)+'</div>' +
       '<div class="chart-tagline">'+escapeHtml(tagline)+'</div>';
@@ -1747,6 +1778,193 @@ function addManualChart() {
 
 function removeChart(idx) { _dashCharts.splice(idx, 1); renderDashboard(); }
 
+// ── Save / publish / share dashboards (Phase C) ─────────────────────────────
+function showDashboardActions() {
+  const el = document.getElementById('dashboardActions');
+  el.classList.toggle('hidden', !(_storageEnabled && !_viewMode));
+  document.getElementById('dashShareBox').classList.toggle('hidden', !_currentDashboard);
+  if (_currentDashboard) reflectDashboardShareState();
+}
+
+function dashViewLink(token) {
+  return location.origin + location.pathname + '?view=' + encodeURIComponent(token);
+}
+
+function reflectDashboardShareState() {
+  if (!_currentDashboard) return;
+  document.getElementById('dashPublic').checked = !!_currentDashboard.is_public;
+  document.getElementById('dashLink').value = _currentDashboard.is_public ? dashViewLink(_currentDashboard.share_token) : '';
+}
+
+async function saveDashboard() {
+  const name = (document.getElementById('dashName').value || '').trim();
+  const status = document.getElementById('dashSaveStatus');
+  if (!name) { status.textContent = 'Name it first.'; return; }
+  if (!_dashCharts.length) { status.textContent = 'Add at least one chart first.'; return; }
+  status.textContent = 'Saving…';
+  try {
+    const r = await api('/api/dashboards', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, config: { charts: _dashCharts, taglines: _dashTaglines } }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Save failed');
+    _currentDashboard = { id: d.id, share_token: d.share_token, is_public: d.is_public };
+    status.textContent = '✓ Saved';
+    document.getElementById('dashShareBox').classList.remove('hidden');
+    reflectDashboardShareState();
+    loadMyDashboards();
+  } catch (e) { status.textContent = '✕ ' + e.message; alert('Save dashboard failed: ' + e.message); }
+}
+
+async function togglePublish() {
+  if (!_currentDashboard) return;
+  const wantPublic = document.getElementById('dashPublic').checked;
+  try {
+    const r = await api('/api/dashboards/' + _currentDashboard.id + '/publish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_public: wantPublic }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Publish failed');
+    _currentDashboard.is_public = d.is_public;
+    _currentDashboard.share_token = d.share_token;
+    reflectDashboardShareState();
+    loadMyDashboards();
+  } catch (e) { alert('Publish failed: ' + e.message); document.getElementById('dashPublic').checked = !wantPublic; }
+}
+
+function copyDashLink() {
+  const link = document.getElementById('dashLink').value;
+  if (!link) { alert('Turn on the public link first.'); return; }
+  navigator.clipboard?.writeText(link);
+  const s = document.getElementById('shareStatus'); s.textContent = 'Link copied ✓'; setTimeout(() => s.textContent = '', 2000);
+}
+
+async function shareDash() {
+  if (!_currentDashboard) { alert('Save the dashboard first.'); return; }
+  const email = (document.getElementById('shareEmail').value || '').trim().toLowerCase();
+  const status = document.getElementById('shareStatus');
+  if (!email.includes('@')) { status.textContent = 'Enter a valid email.'; return; }
+  status.textContent = 'Sharing…';
+  try {
+    const r = await api('/api/dashboards/' + _currentDashboard.id + '/share', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Share failed');
+    status.textContent = '✓ Shared with ' + email;
+    document.getElementById('shareEmail').value = '';
+  } catch (e) { status.textContent = '✕ ' + e.message; }
+}
+
+async function loadMyDashboards() {
+  if (!_storageEnabled) return;
+  try {
+    const r = await api('/api/dashboards');
+    if (!r.ok) return;
+    const list = (await r.json()).dashboards || [];
+    const panel = document.getElementById('myDashboardsPanel');
+    if (!list.length) { panel.classList.add('hidden'); return; }
+    document.getElementById('myDashboardsList').innerHTML = list.map(d =>
+      '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
+        '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(d.name)+
+          (d.is_public ? ' <span style="font-size:9px;color:var(--blue);border:1px solid var(--border);border-radius:999px;padding:0 5px;">public</span>' : '')+'</div>' +
+          '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">'+(d.created_at||'').slice(0,10)+'</div></div>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+          '<button class="btn btn-ghost btn-sm" onclick="openDashboard(\''+d.id+'\')">Open</button>' +
+          '<button class="btn btn-danger btn-sm" onclick="deleteDashboard(\''+d.id+'\')">Delete</button>' +
+        '</div></div>').join('');
+    panel.classList.remove('hidden');
+  } catch {}
+}
+
+async function loadSharedDashboards() {
+  if (!_storageEnabled) return;
+  try {
+    const r = await api('/api/shared-dashboards');
+    if (!r.ok) return;
+    const list = (await r.json()).dashboards || [];
+    const panel = document.getElementById('sharedDashboardsPanel');
+    if (!list.length) { panel.classList.add('hidden'); return; }
+    document.getElementById('sharedDashboardsList').innerHTML = list.map(d =>
+      '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--surface);">' +
+        '<div style="min-width:0;"><div style="font-size:12px;font-weight:600;color:var(--ink);">'+escapeHtml(d.name)+'</div>' +
+          '<div style="font-size:10px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">from '+escapeHtml(d.owner_email||'a colleague')+'</div></div>' +
+          '<button class="btn btn-ghost btn-sm" onclick="openDashboard(\''+d.id+'\')">Open</button>' +
+      '</div>').join('');
+    panel.classList.remove('hidden');
+  } catch {}
+}
+
+async function openDashboard(id) {
+  try {
+    const r = await api('/api/dashboards/' + id);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Open failed');
+    _allRows = d.rows || [];
+    _resultColumns = d.columns || [];
+    _dashCharts = (d.config && d.config.charts) || [];
+    _dashTaglines = (d.config && d.config.taglines) || {};
+    _currentDashboard = { id: d.id, share_token: d.share_token, is_public: d.is_public };
+    const step4 = document.getElementById('step4');
+    step4.classList.add('active');
+    document.getElementById('analyticsInputPanel').classList.add('hidden');
+    document.getElementById('dashboardOutput').classList.remove('hidden');
+    document.getElementById('executiveSummaryWrap').classList.add('hidden');
+    step4.querySelector('.step-title').textContent = d.name;
+    buildFilterBar();
+    buildManualPicker();
+    renderDashboard();
+    showDashboardActions();
+    step4.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) { alert('Open failed: ' + e.message); }
+}
+
+async function deleteDashboard(id) {
+  if (!confirm('Delete this dashboard? This cannot be undone.')) return;
+  try {
+    const r = await api('/api/dashboards/' + id, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Delete failed'); }
+    if (_currentDashboard && _currentDashboard.id === id) _currentDashboard = null;
+    loadMyDashboards();
+  } catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+// Read-only public view: ?view=<share_token>
+async function enterViewMode(token) {
+  _viewMode = true;
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('userPill').style.display = 'none';
+  ['step1', 'step2', 'step3'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+  document.querySelector('.page-title')?.remove();
+  document.getElementById('analyticsInputPanel').style.display = 'none';
+  document.getElementById('chartPicker').innerHTML = '';
+  document.getElementById('dashboardActions')?.classList.add('hidden');
+  document.getElementById('startOverRow')?.remove();
+  const step4 = document.getElementById('step4');
+  step4.classList.add('active');
+  step4.querySelector('.step-num').textContent = '📊';
+  try {
+    const r = await fetch(BACKEND + '/api/public/dashboard/' + encodeURIComponent(token));
+    if (!r.ok) throw new Error('This dashboard link isn\'t available (it may be unpublished).');
+    const d = await r.json();
+    _allRows = d.rows || [];
+    _resultColumns = d.columns || [];
+    _dashCharts = (d.config && d.config.charts) || [];
+    _dashTaglines = (d.config && d.config.taglines) || {};
+    step4.querySelector('.step-title').textContent = d.name || 'Shared dashboard';
+    step4.querySelector('.step-subtitle').textContent = 'Read-only shared dashboard';
+    document.getElementById('dashboardOutput').classList.remove('hidden');
+    buildFilterBar();
+    renderDashboard();
+  } catch (e) {
+    document.getElementById('dashboardOutput').classList.remove('hidden');
+    document.getElementById('chartGrid').innerHTML = '<div style="padding:24px;color:var(--red);font-family:\'DM Mono\',monospace;font-size:12px;">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
 // ── Saved datasets (Phase B) ────────────────────────────────────────────────
 let _storageEnabled = false;
 
@@ -1759,6 +1977,8 @@ async function initFeatures() {
   row.classList.remove('hidden');
   if (_storageEnabled) {
     loadMyDatasets();
+    loadMyDashboards();
+    loadSharedDashboards();
   } else {
     // Make the "not set up" state visible instead of silently hiding it.
     row.innerHTML = '<span style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;">💾 Saving to your account isn\'t switched on yet — the backend needs SUPABASE_SERVICE_ROLE_KEY and the datasets table (run supabase/schema.sql). See SUPABASE_SETUP.md.</span>';
@@ -1945,7 +2165,9 @@ function showLoginInfo(msg) {
   el.style.display = 'block';
 }
 
-initAuth();
+// Public read-only view (?view=<token>) skips login entirely; otherwise normal app.
+const _viewToken = new URLSearchParams(location.search).get('view');
+if (_viewToken) { enterViewMode(_viewToken); } else { initAuth(); }
 </script>
 </body>
 </html>

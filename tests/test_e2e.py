@@ -308,7 +308,110 @@ def test_datasets_isolated_per_user(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 5. Auth layer (independent of AUTH_DISABLED used above)
+# 5. Dashboards: save / publish (public link) / share (Phase C)
+# --------------------------------------------------------------------------
+def _make_fake_db():
+    tables, ctr = {"dashboards": [], "dashboard_shares": []}, {"n": 0}
+
+    async def fake(method, path, *, params=None, data=None, prefer=None):
+        params = params or {}
+        rows = tables.setdefault(path, [])
+        if method == "POST":
+            rec = dict(data); ctr["n"] += 1
+            rec.setdefault("id", f"id{ctr['n']}")
+            if path == "dashboards":
+                rec.setdefault("share_token", f"tok{ctr['n']}")
+                rec.setdefault("is_public", False)
+            rec.setdefault("created_at", "2026-08-09T00:00:00Z")
+            rows.append(rec)
+            return [rec]
+        if method == "GET":
+            res = rows
+            for key in ("owner_id", "user_id", "share_token", "dashboard_id", "shared_with_email", "id"):
+                val = params.get(key)
+                if val and val.startswith("eq."):
+                    res = [r for r in res if str(r.get(key)) == val[3:]]
+                elif val and val.startswith("in.("):
+                    wanted = set(val[4:-1].split(","))
+                    res = [r for r in res if str(r.get("id")) in wanted]
+            if params.get("is_public") == "eq.true":
+                res = [r for r in res if r.get("is_public") is True]
+            return res
+        if method == "PATCH":
+            res = rows
+            for key in ("id", "owner_id"):
+                val = params.get(key)
+                if val and val.startswith("eq."):
+                    res = [r for r in res if str(r.get(key)) == val[3:]]
+            for r in res:
+                r.update(data)
+            return res
+        if method == "DELETE":
+            oid = (params.get("owner_id") or "eq.")[3:]
+            did = (params.get("id") or "eq.")[3:]
+            tables[path] = [r for r in rows if not (str(r.get("id")) == did and str(r.get("owner_id")) == oid)]
+            return None
+        return None
+
+    return fake, tables
+
+
+def test_dashboard_save_publish_public(client, monkeypatch):
+    fake, _ = _make_fake_db()
+    monkeypatch.setattr(main, "_sb_request", fake)
+    df = _sample_df()
+    client.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()})
+
+    r = client.post("/api/dashboards", json={"name": "Q3 board",
+                    "config": {"charts": [{"type": "bar", "column": "overall_sentiment"}]}})
+    assert r.status_code == 200, r.text
+    did, token = r.json()["id"], r.json()["share_token"]
+    assert r.json()["is_public"] is False
+
+    # public link is dead until published
+    assert client.get(f"/api/public/dashboard/{token}").status_code == 404
+
+    r = client.post(f"/api/dashboards/{did}/publish", json={"is_public": True})
+    assert r.status_code == 200 and r.json()["is_public"] is True
+
+    # now anyone with the token can read it — no auth
+    r = client.get(f"/api/public/dashboard/{token}")
+    assert r.status_code == 200
+    assert r.json()["config"]["charts"][0]["column"] == "overall_sentiment"
+    assert len(r.json()["rows"]) == len(SAMPLE_ROWS)
+
+
+def test_dashboard_share_with_colleague(monkeypatch):
+    monkeypatch.setattr(main, "AUTH_DISABLED", False)
+    monkeypatch.setattr(main, "SUPABASE_JWT_SECRET", "test-secret")
+    monkeypatch.setattr(main, "ALLOWED_EMAIL_DOMAIN", "mcsaatchi.com")
+    fake, _ = _make_fake_db()
+    monkeypatch.setattr(main, "_sb_request", fake)
+    main._sessions.clear()
+    c = TestClient(main.app)
+
+    def tok(sub, email):
+        return jwt.encode({"sub": sub, "email": email, "aud": "authenticated",
+                           "exp": int(time.time()) + 3600}, "test-secret", algorithm="HS256")
+    A = {"Authorization": f"Bearer {tok('userA', 'a@mcsaatchi.com')}"}
+    B = {"Authorization": f"Bearer {tok('userB', 'b@mcsaatchi.com')}"}
+
+    df = _sample_df()
+    c.post("/api/upload-data", json={"columns": list(df.columns), "rows": df.astype(str).values.tolist()}, headers=A)
+    did = c.post("/api/dashboards", json={"name": "A board", "config": {}}, headers=A).json()["id"]
+
+    assert c.get(f"/api/dashboards/{did}", headers=B).status_code == 403        # not shared yet
+    assert c.get("/api/shared-dashboards", headers=B).json()["dashboards"] == []
+
+    assert c.post(f"/api/dashboards/{did}/share", json={"email": "b@mcsaatchi.com"}, headers=A).status_code == 200
+
+    shared = c.get("/api/shared-dashboards", headers=B).json()["dashboards"]
+    assert len(shared) == 1 and shared[0]["id"] == did
+    assert c.get(f"/api/dashboards/{did}", headers=B).status_code == 200        # now B can load it
+
+
+# --------------------------------------------------------------------------
+# 6. Auth layer (independent of AUTH_DISABLED used above)
 # --------------------------------------------------------------------------
 def test_auth_rejects_and_isolates(monkeypatch):
     monkeypatch.setattr(main, "AUTH_DISABLED", False)

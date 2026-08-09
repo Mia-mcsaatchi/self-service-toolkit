@@ -133,7 +133,22 @@ restart (or a Supabase unpause) no longer wipes their work.
 If you skip this, the save/load feature is simply hidden and everything else
 works exactly as before.
 
+## Phase C — save & share dashboards
+
+Save a whole dashboard (charts + data snapshot), publish a **read-only public
+link**, or **share it with named colleagues**.
+
+1. **Add the tables.** Re-run `supabase/schema.sql` in the SQL Editor — it's
+   safe to run again (`create table if not exists`) and adds the `dashboards`
+   and `dashboard_shares` tables.
+2. Nothing else to configure — it reuses the same `SUPABASE_SERVICE_ROLE_KEY`.
+
+Then, on the dashboard: **💾 Save dashboard** → tick **Public read-only link**
+to get a shareable `…?view=<token>` URL (opens with no login), and/or enter a
+colleague's `@mcsaatchi.com` email to share it privately (it shows up in their
+"🔗 Shared with you" list). Your saved dashboards live in the **📊 Your
+dashboards** panel on Step 1.
+
 ## What's next
 
-- **Phase C** — save a tagged dataset + its chosen dimension as a reusable,
-  revisitable dashboard.
+- **User / session management** — team roles and account administration.

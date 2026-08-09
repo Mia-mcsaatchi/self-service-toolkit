@@ -265,6 +265,16 @@ class SaveDatasetRequest(BaseModel):
     name: str
     use_result: bool = True       # save tagged results if available, else raw data
 
+class SaveDashboardRequest(BaseModel):
+    name: str
+    config: Dict[str, Any] = {}   # {charts: [...]} — the dashboard layout
+
+class PublishRequest(BaseModel):
+    is_public: bool = True
+
+class ShareRequest(BaseModel):
+    email: str
+
 # ---------------------------------------------------------------------------
 # Analytics models
 # ---------------------------------------------------------------------------
@@ -794,6 +804,133 @@ async def delete_dataset(dataset_id: str, user: Dict[str, Any] = Depends(get_cur
         "user_id": f"eq.{user['id']}",
     })
     return {"deleted": dataset_id}
+
+
+# ---------------------------------------------------------------------------
+# Saved & shareable dashboards (Phase C)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/dashboards")
+async def save_dashboard(body: SaveDashboardRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Save the current dashboard (chart layout + a snapshot of the data)."""
+    df = _get_export_df(_state_for(user))
+    if df is None:
+        raise HTTPException(status_code=400, detail="No data — build a dashboard first.")
+    sdf = _safe_df(df)
+    payload = {
+        "owner_id": user["id"],
+        "owner_email": user.get("email"),
+        "name": (body.name or "").strip() or "Untitled dashboard",
+        "config": body.config or {},
+        "columns": sdf.columns.tolist(),
+        "rows": sdf.values.tolist(),
+    }
+    res = await _sb_request("POST", "dashboards", data=payload, prefer="return=representation")
+    saved = res[0] if isinstance(res, list) and res else (res or {})
+    return {"id": saved.get("id"), "name": payload["name"],
+            "share_token": saved.get("share_token"), "is_public": saved.get("is_public", False)}
+
+
+@app.get("/api/dashboards")
+async def list_dashboards(user: Dict[str, Any] = Depends(get_current_user)):
+    rows = await _sb_request("GET", "dashboards", params={
+        "owner_id": f"eq.{user['id']}",
+        "select": "id,name,is_public,share_token,created_at",
+        "order": "created_at.desc",
+    })
+    return {"dashboards": rows or []}
+
+
+@app.get("/api/shared-dashboards")
+async def shared_dashboards(user: Dict[str, Any] = Depends(get_current_user)):
+    """Dashboards other colleagues have shared with this user's email."""
+    shares = await _sb_request("GET", "dashboard_shares", params={
+        "shared_with_email": f"eq.{user['email']}",
+        "select": "dashboard_id",
+    })
+    ids = [s["dashboard_id"] for s in (shares or [])]
+    if not ids:
+        return {"dashboards": []}
+    rows = await _sb_request("GET", "dashboards", params={
+        "id": f"in.({','.join(ids)})",
+        "select": "id,name,owner_email,created_at",
+        "order": "created_at.desc",
+    })
+    return {"dashboards": rows or []}
+
+
+@app.get("/api/dashboards/{dashboard_id}")
+async def get_dashboard(dashboard_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    """Load a dashboard the user owns or that has been shared with them."""
+    rows = await _sb_request("GET", "dashboards", params={
+        "id": f"eq.{dashboard_id}", "select": "*", "limit": "1",
+    })
+    if not rows:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    d = rows[0]
+    if d["owner_id"] != user["id"]:
+        shares = await _sb_request("GET", "dashboard_shares", params={
+            "dashboard_id": f"eq.{dashboard_id}",
+            "shared_with_email": f"eq.{user['email']}",
+            "select": "id", "limit": "1",
+        })
+        if not shares:
+            raise HTTPException(status_code=403, detail="This dashboard isn't shared with you")
+    return {
+        "id": d["id"], "name": d["name"], "config": d.get("config") or {},
+        "columns": d.get("columns") or [], "rows": d.get("rows") or [],
+        "is_public": d.get("is_public"), "share_token": d.get("share_token"),
+    }
+
+
+@app.delete("/api/dashboards/{dashboard_id}")
+async def delete_dashboard(dashboard_id: str, user: Dict[str, Any] = Depends(get_current_user)):
+    await _sb_request("DELETE", "dashboards", params={
+        "id": f"eq.{dashboard_id}", "owner_id": f"eq.{user['id']}",
+    })
+    return {"deleted": dashboard_id}
+
+
+@app.post("/api/dashboards/{dashboard_id}/publish")
+async def publish_dashboard(dashboard_id: str, body: PublishRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Turn the public read-only link on or off."""
+    res = await _sb_request("PATCH", "dashboards",
+        params={"id": f"eq.{dashboard_id}", "owner_id": f"eq.{user['id']}"},
+        data={"is_public": body.is_public}, prefer="return=representation")
+    if not res:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    d = res[0]
+    return {"is_public": d.get("is_public"), "share_token": d.get("share_token")}
+
+
+@app.post("/api/dashboards/{dashboard_id}/share")
+async def share_dashboard(dashboard_id: str, body: ShareRequest, user: Dict[str, Any] = Depends(get_current_user)):
+    """Grant a named colleague read access to this dashboard."""
+    owns = await _sb_request("GET", "dashboards", params={
+        "id": f"eq.{dashboard_id}", "owner_id": f"eq.{user['id']}", "select": "id", "limit": "1",
+    })
+    if not owns:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    email = (body.email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    await _sb_request("POST", "dashboard_shares",
+                      data={"dashboard_id": dashboard_id, "shared_with_email": email})
+    return {"shared_with": email}
+
+
+@app.get("/api/public/dashboard/{token}")
+async def public_dashboard(token: str):
+    """PUBLIC (no auth): read-only dashboard by share token, if published."""
+    rows = await _sb_request("GET", "dashboards", params={
+        "share_token": f"eq.{token}", "is_public": "eq.true",
+        "select": "name,config,columns,rows", "limit": "1",
+    })
+    if not rows:
+        raise HTTPException(status_code=404, detail="Dashboard not found or not public")
+    d = rows[0]
+    return {"name": d["name"], "config": d.get("config") or {},
+            "columns": d.get("columns") or [], "rows": d.get("rows") or []}
 
 
 # ---------------------------------------------------------------------------
