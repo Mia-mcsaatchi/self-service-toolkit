@@ -1463,13 +1463,24 @@ function renderCharts(charts, taglines, allRows) {
       '<div class="chart-tagline">'+escapeHtml(tagline)+'</div>';
 
     if (chart.type === 'wordcloud') {
+      const wf = chart.wordFreq || buildWordFrequency(allRows, chart.column);
+      if (!wf.length) {
+        card.innerHTML = head + '<div class="wordcloud-wrap" style="color:var(--ink-muted);font-size:11px;text-align:center;padding:0 12px;">No words to show for “'+escapeHtml(chart.column)+'”. Pick a free-text column (e.g. the verbatim / comment column).</div>';
+        grid.appendChild(card);
+        return;
+      }
       card.innerHTML = head + '<div class="wordcloud-wrap" id="wc-'+safeId+'"></div>';
       grid.appendChild(card);
-      renderWordCloud('wc-'+safeId, chart.wordFreq || buildWordFrequency(allRows, chart.column));
+      renderWordCloud('wc-'+safeId, wf);
       return;
     }
     if (chart.type === 'verbatims') {
-      const sample = (chart.rows || allRows).slice(0,10);
+      const sample = (chart.rows || allRows).filter(r => (r[chart.column]||'').trim()).slice(0,10);
+      if (!sample.length) {
+        card.innerHTML = head + '<div class="verbatims-wrap" style="color:var(--ink-muted);font-size:11px;padding:12px;">No text found in “'+escapeHtml(chart.column)+'”. Pick a free-text column.</div>';
+        grid.appendChild(card);
+        return;
+      }
       card.innerHTML = head +
         '<div class="verbatims-wrap"><table><thead><tr><th>#</th><th>'+escapeHtml(chart.column)+'</th></tr></thead><tbody>' +
         sample.map((r,i) => '<tr><td>'+(i+1)+'</td><td>'+escapeHtml((r[chart.column]||'').slice(0,200))+'</td></tr>').join('') +
@@ -1631,9 +1642,25 @@ function buildManualPicker() {
     '<button class="btn btn-primary btn-sm" onclick="addManualChart()">+ Add chart</button>';
 }
 
+// The free-text column (longest average value) — best for word clouds/verbatims.
+function bestTextColumn() {
+  let best = null, bestLen = 0;
+  const sample = _allRows.slice(0, 30);
+  for (const c of _resultColumns) {
+    const avg = sample.reduce((a, r) => a + String(r[c] || '').length, 0) / (sample.length || 1);
+    if (avg > bestLen) { bestLen = avg; best = c; }
+  }
+  return best;
+}
+
 function togglePickSeries() {
-  document.getElementById('pickSeriesWrap').style.display =
-    document.getElementById('pickType').value === 'stacked' ? 'flex' : 'none';
+  const type = document.getElementById('pickType').value;
+  document.getElementById('pickSeriesWrap').style.display = type === 'stacked' ? 'flex' : 'none';
+  // Word clouds / verbatims only make sense on a text column — pick one for them.
+  if (type === 'wordcloud' || type === 'verbatims') {
+    const best = bestTextColumn();
+    if (best) document.getElementById('pickCol').value = best;
+  }
 }
 
 function addManualChart() {
