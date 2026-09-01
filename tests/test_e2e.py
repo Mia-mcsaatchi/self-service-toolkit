@@ -173,6 +173,34 @@ def test_full_pipeline_writes_expected_columns(client):
     assert (out.loc[~neg_mask.values, "neg_reason"] == "n/a").all()
 
 
+def test_process_chunked_accumulates_all_rows(client):
+    """Chunked tagging: many short requests must accumulate to the full result."""
+    _load_sample(client)
+    client.post("/api/upload-config", json=CONFIG)
+
+    total = len(SAMPLE_ROWS)
+    offset, done, last = 0, False, None
+    guard = 0
+    while not done:
+        r = client.post("/api/process", json={"offset": offset, "limit": 2, "max_concurrent": 4})
+        assert r.status_code == 200, r.text
+        last = r.json()
+        assert last["total"] == total
+        offset = last["processed"]
+        done = last["done"]
+        guard += 1
+        assert guard <= total + 2, "chunk loop did not terminate"
+
+    assert last["processed"] == total and last["done"] is True
+    assert last["row_count"] == total          # accumulated, not just the last chunk
+    for col in ("ai_sentiment", "ai_topic", "neg_reason"):
+        assert col in last["columns"]
+    # full result is retrievable and complete
+    out = pd.read_csv(io.BytesIO(client.get("/api/export/csv").content), keep_default_na=False)
+    assert len(out) == total
+    assert (out["ai_sentiment"] == "positive").all()
+
+
 def test_result_data_json_survives_messy_text(client):
     # A tag column with commas, quotes and newlines — the case CSV parsing breaks on
     df = _sample_df()

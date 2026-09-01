@@ -249,6 +249,8 @@ class FieldConfig(BaseModel):
 class ProcessRequest(BaseModel):
     max_rows: int = 0
     max_concurrent: int = 10
+    offset: int = 0      # start row for chunked processing
+    limit: int = 0       # rows to process this request (0 = all remaining, legacy single-shot)
 
 class RowData(BaseModel):
     columns: List[str]
@@ -656,21 +658,40 @@ async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_curre
     if not config:
         raise HTTPException(status_code=400, detail="No config loaded — configure fields first")
 
+    # Total rows to process (respect an optional max_rows cap).
+    total = len(df)
+    if body.max_rows and body.max_rows > 0:
+        total = min(total, body.max_rows)
+
+    # Chunked processing: the client sends one request per slice so no single
+    # request runs long enough to hit a free-tier / proxy timeout. limit=0 keeps
+    # the legacy single-shot behaviour (process everything from offset).
+    offset = max(0, body.offset)
+    end = min(total, offset + body.limit) if (body.limit and body.limit > 0) else total
+    chunk = df.iloc[offset:end].reset_index(drop=True)
+
     try:
         result = await _run_pipeline(
-            df, config, body.max_rows, body.max_concurrent,
-            api_key=st.get("api_key"),
+            chunk, config, 0, body.max_concurrent, api_key=st.get("api_key"),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    st["result_df"] = result
+    # Accumulate results across chunks. offset==0 starts a fresh run.
+    if offset == 0 or st.get("result_df") is None:
+        acc = result
+    else:
+        acc = pd.concat([st["result_df"], result], ignore_index=True)
+    st["result_df"] = acc
 
     return {
-        "message": "Processing complete",
-        "row_count": len(result),
-        "columns": result.columns.tolist(),
-        "preview": result.head(10).fillna("").to_dict("records"),
+        "message": "Processing complete" if end >= total else "chunk complete",
+        "processed": end,
+        "total": total,
+        "done": end >= total,
+        "row_count": len(acc),
+        "columns": acc.columns.tolist(),
+        "preview": acc.head(10).fillna("").to_dict("records"),
     }
 
 

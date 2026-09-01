@@ -483,7 +483,7 @@
       </div>
       <button class="btn btn-success" id="processBtn" disabled onclick="runPipeline()">Run pipeline</button>
       <div id="processingStatus" class="hidden" style="margin-top:14px;">
-        <div class="alert alert-info"><div class="spinner"></div> Processing — this may take a few minutes…</div>
+        <div class="alert alert-info"><div class="spinner"></div> <span id="processingMsg">Tagging… this runs in batches, keep this tab open.</span></div>
         <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
       </div>
       <div id="resultsSection" class="hidden" style="margin-top:24px;">
@@ -1201,34 +1201,45 @@ function unlockStep3() {
 }
 
 // ── Run pipeline ──────────────────────────────────────────────────────────────
+// Rows tagged per request. Small enough that a single request always finishes
+// well under free-tier / proxy timeouts — the whole job is many short requests.
+const PROCESS_CHUNK = 100;
+
 async function runPipeline() {
   document.getElementById('processBtn').disabled = true;
   document.getElementById('processingStatus').classList.remove('hidden');
   document.getElementById('resultsSection').classList.add('hidden');
-  let prog = 0;
   const bar = document.getElementById('progressBar');
-  const ticker = setInterval(() => { prog = Math.min(prog + Math.random() * 3, 90); bar.style.width = prog + '%'; }, 400);
+  const statusMsg = document.getElementById('processingMsg');
+  bar.style.width = '0%';
+  const maxRows = parseInt(document.getElementById('maxRows').value) || 0;
+  const maxConcurrent = parseInt(document.getElementById('maxConcurrent').value) || 10;
   try {
-    const r = await api('/api/process', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        max_rows: parseInt(document.getElementById('maxRows').value) || 0,
-        max_concurrent: parseInt(document.getElementById('maxConcurrent').value) || 10,
-      }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || 'Processing failed');
-    clearInterval(ticker);
+    let offset = 0, d = null;
+    do {
+      const r = await api('/api/process', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_rows: maxRows, max_concurrent: maxConcurrent, offset, limit: PROCESS_CHUNK }),
+      });
+      d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'Processing failed');
+      offset = d.processed;
+      const pct = d.total ? Math.round(d.processed / d.total * 100) : 100;
+      bar.style.width = pct + '%';
+      if (statusMsg) statusMsg.textContent = 'Tagging… ' + d.processed.toLocaleString() + ' / ' + d.total.toLocaleString() + ' rows (' + pct + '%)';
+    } while (d && !d.done);
+
     bar.style.width = '100%';
-    setTimeout(() => {
-      document.getElementById('processingStatus').classList.add('hidden');
-      renderTable('resultsTable', d.columns, d.preview);
-      document.getElementById('resultsSection').classList.remove('hidden');
-      document.getElementById('step3').classList.add('done');
-      document.getElementById('step3').querySelector('.step-num').textContent = '✓';
-      unlockAnalytics(d.columns);
-    }, 400);
-  } catch (e) { clearInterval(ticker); alert('Failed: ' + e.message); }
+    document.getElementById('processingStatus').classList.add('hidden');
+    renderTable('resultsTable', d.columns, d.preview);
+    document.getElementById('resultsSection').classList.remove('hidden');
+    document.getElementById('step3').classList.add('done');
+    document.getElementById('step3').querySelector('.step-num').textContent = '✓';
+    unlockAnalytics(d.columns);
+  } catch (e) {
+    document.getElementById('processingStatus').classList.add('hidden');
+    alert('Failed: ' + e.message);
+  }
   document.getElementById('processBtn').disabled = false;
 }
 
