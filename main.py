@@ -5,9 +5,10 @@ import io
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import aiohttp
+import anthropic
 import jwt
 import numpy as np
 import pandas as pd
@@ -19,7 +20,18 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+# Two providers, deliberately:
+#   • Anthropic (Claude) for every text/reasoning call — tagging, prompt drafting,
+#     dashboard chart specs, executive summaries and taglines.
+#   • OpenAI for embeddings only. Anthropic has no embeddings endpoint, and the
+#     semantic retrieval behind /api/analyse needs one.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+
+# Sonnet for the high-volume per-row tagging pass; Opus for dashboard generation
+# and analysis, where the reasoning quality is worth the extra cost per call.
+TAGGING_MODEL = "claude-sonnet-5"
+DASHBOARD_MODEL = "claude-opus-4-8"
 
 # ---------------------------------------------------------------------------
 # Auth config (Supabase)
@@ -154,7 +166,7 @@ def _new_state() -> Dict[str, Any]:
         "embeddings": None,       # np.ndarray of shape (n_rows, embedding_dim)
         "embedded_texts": None,   # List[str] — the text we embedded (one per row)
         "column_map": None,       # Dict describing which columns are categorical/datetime/text/numerical
-        "api_key": None,          # optional per-user OpenAI key override
+        "api_key": None,          # optional per-user OpenAI key — embeddings only
     }
 
 
@@ -308,6 +320,10 @@ class AnalyseRequest(BaseModel):
     column_map: ColumnMap
     charts: List[ChartContext]
     dataset_label: str = "social listening dataset"  # e.g. "Ford Europe BlueCruise mentions"
+    # How much model horsepower to spend narrating the dashboard. Taglines are
+    # one call per chart, so they dominate cost on a busy board — "balanced"
+    # keeps the summary deep and makes the taglines cheap.
+    analysis_depth: Literal["standard", "balanced", "deep"] = "balanced"
 
 # ---------------------------------------------------------------------------
 # Health
@@ -318,7 +334,12 @@ class ApiKeyRequest(BaseModel):
 
 @app.post("/api/set-api-key")
 def set_api_key(body: ApiKeyRequest, user: Dict[str, Any] = Depends(get_current_user)):
-    """Allow a user to set their own OpenAI API key for this session."""
+    """Allow a user to set their own OpenAI API key for this session.
+
+    Applies to embeddings only (/api/embed). Claude calls — tagging, prompt
+    suggestions, dashboards and analysis — always use the server's
+    ANTHROPIC_API_KEY and ignore this.
+    """
     key = (body.api_key or "").strip()
     if not key.startswith("sk-"):
         raise HTTPException(status_code=400, detail="Invalid API key format")
@@ -477,57 +498,164 @@ def _build_row_prompt(base_prompt: str, fields: List[Dict], row: pd.Series) -> s
 
 
 # ---------------------------------------------------------------------------
-# Async OpenAI caller (shared by pipeline + analytics)
+# Async Claude caller (shared by pipeline + analytics)
 # ---------------------------------------------------------------------------
+# Every call asks for structured JSON via output_config.format, so the response
+# is schema-valid by construction rather than by asking nicely in the prompt.
+# Note the API surface on these models: temperature/top_p/top_k are rejected
+# outright, and thinking tokens are drawn from max_tokens — hence the explicit
+# thinking config and generous budgets below.
 
-async def _call_openai(
-    session: aiohttp.ClientSession,
+_anthropic_client: Optional[anthropic.AsyncAnthropic] = None
+
+
+def _get_anthropic() -> anthropic.AsyncAnthropic:
+    """Lazily build a shared async client. Claude calls always use the server
+    key — a user's stored key is an OpenAI key and only applies to embeddings."""
+    global _anthropic_client
+    if _anthropic_client is None:
+        if not ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY is not set on the server.")
+        # max_retries covers 429/5xx/connection errors with exponential backoff,
+        # replacing the hand-rolled retry loop this function used to carry.
+        _anthropic_client = anthropic.AsyncAnthropic(
+            api_key=ANTHROPIC_API_KEY, max_retries=3, timeout=120.0,
+        )
+    return _anthropic_client
+
+
+async def _call_claude(
     semaphore: asyncio.Semaphore,
     prompt: str,
-    model: str = "gpt-4o-mini",
-    response_json: bool = True,
-    max_tokens: int = 512,
-    retries: int = 2,
-    api_key: Optional[str] = None,
-) -> str:
-    api_key = api_key or OPENAI_API_KEY
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload: Dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "max_tokens": max_tokens,
-    }
-    if response_json:
-        payload["response_format"] = {"type": "json_object"}
+    schema: Dict[str, Any],
+    model: str = TAGGING_MODEL,
+    max_tokens: int = 4096,
+    effort: str = "medium",
+    thinking: bool = False,
+) -> Dict[str, Any]:
+    """Run one prompt and return the parsed JSON object, or {} on any failure.
 
-    backoff = 1.0
-    for attempt in range(retries + 1):
-        try:
-            async with semaphore:
-                async with session.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return (data["choices"][0]["message"]["content"] or "").strip()
-                    if attempt < retries:
-                        await asyncio.sleep(backoff)
-                        backoff *= 2
-                    else:
-                        return "{}" if response_json else ""
-        except Exception:
-            if attempt < retries:
-                await asyncio.sleep(backoff)
-                backoff *= 2
-            else:
-                return "{}" if response_json else ""
-    return "{}" if response_json else ""
+    Callers treat {} as "couldn't answer" and fall back, matching how this
+    function behaved when it spoke to OpenAI.
+    """
+    # Resolved outside the try: a missing server key is a configuration fault
+    # and should surface loudly, not decay into an empty result.
+    client = _get_anthropic()
+    output_config: Dict[str, Any] = {
+        "format": {"type": "json_schema", "schema": schema},
+        "effort": effort,
+    }
+    try:
+        async with semaphore:
+            resp = await client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                # Adaptive is the default on Sonnet 5 when omitted, so the
+                # per-row tagging path has to disable it explicitly or every
+                # row pays for reasoning it doesn't need.
+                thinking={"type": "adaptive"} if thinking else {"type": "disabled"},
+                output_config=output_config,
+                messages=[{"role": "user", "content": prompt}],
+            )
+    except Exception:
+        return {}
+
+    if resp.stop_reason == "refusal":
+        return {}
+
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    try:
+        return json.loads(text)
+    except Exception:
+        # Truncation (stop_reason == "max_tokens") is the realistic cause here.
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Response schemas
+# ---------------------------------------------------------------------------
+# Note: numeric/array constraints (minItems, maxItems, minLength...) are not
+# supported by structured outputs, so counts like "2-6 charts" stay in the
+# prompt text rather than the schema.
+
+def _tagging_schema(field_names: List[str]) -> Dict[str, Any]:
+    """One object with a string per requested output column. Built per call
+    group, so rows sharing a config reuse the same (cached) schema."""
+    return {
+        "type": "object",
+        "properties": {fn: {"type": "string"} for fn in field_names},
+        "required": list(field_names),
+        "additionalProperties": False,
+    }
+
+
+CHART_SPEC_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "charts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "bar", "sentiment_bar", "line",
+                            "pie", "wordcloud", "verbatims",
+                        ],
+                    },
+                    "column": {"type": "string"},
+                    "label": {"type": "string"},
+                },
+                "required": ["type", "column", "label"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["charts"],
+    "additionalProperties": False,
+}
+
+SUGGESTED_PROMPT_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {"prompt": {"type": "string"}},
+    "required": ["prompt"],
+    "additionalProperties": False,
+}
+
+SUMMARY_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {"bullets": {"type": "array", "items": {"type": "string"}}},
+    "required": ["bullets"],
+    "additionalProperties": False,
+}
+
+TAGLINE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {"tagline": {"type": "string"}},
+    "required": ["tagline"],
+    "additionalProperties": False,
+}
+
+
+# ---------------------------------------------------------------------------
+# Analysis depth presets (/api/analyse)
+# ---------------------------------------------------------------------------
+# The executive summary is a single call; taglines are one call per chart, so a
+# 6-chart board spends most of its budget there. Exposing the two separately
+# lets a user keep a considered summary without paying Opus rates per tagline.
+
+_FAST = {"model": TAGGING_MODEL, "effort": "low", "thinking": False, "max_tokens": 2048}
+_DEEP = {"model": DASHBOARD_MODEL, "effort": "high", "thinking": True, "max_tokens": 16000}
+
+ANALYSIS_DEPTH_PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {
+    # Everything on Sonnet — quickest and cheapest.
+    "standard": {"summary": {**_FAST, "max_tokens": 4096}, "tagline": _FAST},
+    # Deep summary, cheap taglines. The default.
+    "balanced": {"summary": _DEEP, "tagline": _FAST},
+    # Opus with extended thinking throughout.
+    "deep": {"summary": _DEEP, "tagline": _DEEP},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -572,10 +700,9 @@ async def _run_pipeline(
     config: Dict[str, Any],
     max_rows: int,
     max_concurrent: int,
-    api_key: Optional[str] = None,
 ) -> pd.DataFrame:
-    if not (api_key or OPENAI_API_KEY):
-        raise ValueError("OPENAI_API_KEY is not set on the server.")
+    if not ANTHROPIC_API_KEY:
+        raise ValueError("ANTHROPIC_API_KEY is not set on the server.")
 
     fields = [f for f in config.get("fields", []) if (f.get("name") or "").strip()]
     if not fields:
@@ -590,54 +717,54 @@ async def _run_pipeline(
     base_prompt = config.get("base_prompt", BASE_PROMPT)
 
     semaphore = asyncio.Semaphore(max_concurrent)
-    timeout = aiohttp.ClientTimeout(total=45)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async def process_row(i: int) -> Dict[str, str]:
+        row = df.iloc[i]
+        results: Dict[str, str] = {}
 
-        async def process_row(i: int) -> Dict[str, str]:
-            row = df.iloc[i]
-            results: Dict[str, str] = {}
+        call_groups: Dict[str, Dict[str, Any]] = {}
 
-            call_groups: Dict[str, Dict[str, Any]] = {}
+        for f in fields:
+            fname = (f.get("name") or "").strip()
+            if not fname:
+                continue
 
-            for f in fields:
-                fname = (f.get("name") or "").strip()
-                if not fname:
-                    continue
+            resolved_prompt = _resolve_prompt(f, row)
 
-                resolved_prompt = _resolve_prompt(f, row)
+            if resolved_prompt is None:
+                results[fname] = "n/a"
+                continue
 
-                if resolved_prompt is None:
-                    results[fname] = "n/a"
-                    continue
+            group_key = resolved_prompt + "|" + ",".join(sorted(f.get("reads_from") or []))
+            if group_key not in call_groups:
+                call_groups[group_key] = {
+                    "prompt": resolved_prompt,
+                    "reads_from": f.get("reads_from") or [],
+                    "field_names": [],
+                }
+            call_groups[group_key]["field_names"].append(fname)
 
-                group_key = resolved_prompt + "|" + ",".join(sorted(f.get("reads_from") or []))
-                if group_key not in call_groups:
-                    call_groups[group_key] = {
-                        "prompt": resolved_prompt,
-                        "reads_from": f.get("reads_from") or [],
-                        "field_names": [],
-                    }
-                call_groups[group_key]["field_names"].append(fname)
+        for group in call_groups.values():
+            group_fields = [
+                {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
+                for fn in group["field_names"]
+            ]
+            built_prompt = _build_row_prompt(base_prompt, group_fields, row)
+            parsed = await _call_claude(
+                semaphore,
+                built_prompt,
+                schema=_tagging_schema(group["field_names"]),
+                model=TAGGING_MODEL,
+                max_tokens=2048,
+                effort="low",
+            )
+            for fn in group["field_names"]:
+                results[fn] = str(parsed.get(fn, "unsure"))
 
-            for group in call_groups.values():
-                group_fields = [
-                    {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
-                    for fn in group["field_names"]
-                ]
-                built_prompt = _build_row_prompt(base_prompt, group_fields, row)
-                raw = await _call_openai(session, semaphore, built_prompt, api_key=api_key)
-                try:
-                    parsed = json.loads(raw)
-                except Exception:
-                    parsed = {}
-                for fn in group["field_names"]:
-                    results[fn] = parsed.get(fn, "unsure")
+        return results
 
-            return results
-
-        tasks = [process_row(i) for i in range(n)]
-        all_results = await asyncio.gather(*tasks)
+    tasks = [process_row(i) for i in range(n)]
+    all_results = await asyncio.gather(*tasks)
 
     for i, row_results in enumerate(all_results):
         for fname, value in row_results.items():
@@ -671,9 +798,7 @@ async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_curre
     chunk = df.iloc[offset:end].reset_index(drop=True)
 
     try:
-        result = await _run_pipeline(
-            chunk, config, 0, body.max_concurrent, api_key=st.get("api_key"),
-        )
+        result = await _run_pipeline(chunk, config, 0, body.max_concurrent)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -995,7 +1120,6 @@ async def public_dashboard(token: str):
 @app.post("/api/interpret")
 async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """LLM interprets user intent into chart configs. Uses server-side API key."""
-    api_key = _state_for(user).get("api_key")
     prompt = (
         f"You are a data analyst building a dashboard. "
         f"The dataset is: {body.dataset_label}\n"
@@ -1022,19 +1146,18 @@ async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depend
         f"- Return ONLY the JSON object, no markdown"
     )
 
-    semaphore = asyncio.Semaphore(1)
-    timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        raw = await _call_openai(
-            session, semaphore, prompt,
-            model="gpt-4o", response_json=True, max_tokens=600, api_key=api_key,
-        )
-
-    try:
-        result = json.loads(raw)
-        return result
-    except Exception:
+    result = await _call_claude(
+        asyncio.Semaphore(1),
+        prompt,
+        schema=CHART_SPEC_SCHEMA,
+        model=DASHBOARD_MODEL,
+        max_tokens=16000,
+        effort="high",
+        thinking=True,
+    )
+    if not result.get("charts"):
         raise HTTPException(status_code=500, detail="Failed to interpret intent")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1045,7 +1168,6 @@ async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depend
 async def suggest_prompt(body: SuggestPromptRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """Draft a ready-to-run tagging prompt from the field name (+ optional source
     columns and sample values), so non-technical users start from a filled box."""
-    api_key = _state_for(user).get("api_key")
     name = (body.field_name or "").strip() or "the field"
     reads = ", ".join([c for c in body.reads_from if c]) or "the source text"
     sample_block = "\n".join(
@@ -1076,17 +1198,15 @@ async def suggest_prompt(body: SuggestPromptRequest, user: Dict[str, Any] = Depe
         'Return ONLY JSON: {"prompt": "<the instruction>"}'
     )
 
-    semaphore = asyncio.Semaphore(1)
-    timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        raw = await _call_openai(
-            session, semaphore, prompt,
-            model="gpt-4o-mini", response_json=True, max_tokens=200, api_key=api_key,
-        )
-    try:
-        suggestion = (json.loads(raw).get("prompt") or "").strip()
-    except Exception:
-        suggestion = ""
+    result = await _call_claude(
+        asyncio.Semaphore(1),
+        prompt,
+        schema=SUGGESTED_PROMPT_SCHEMA,
+        model=TAGGING_MODEL,
+        max_tokens=2048,
+        effort="low",
+    )
+    suggestion = (result.get("prompt") or "").strip()
     if not suggestion:
         raise HTTPException(status_code=502, detail="Could not generate a suggestion — please try again.")
     return {"prompt": suggestion}
@@ -1281,11 +1401,12 @@ async def analyse(body: AnalyseRequest, user: Dict[str, Any] = Depends(get_curre
     1. Executive summary (4-5 bullet headlines) — grounded in full structured stats
     2. One tagline per chart — grounded in chart summary + relevant verbatim samples (RAG)
 
-    Uses gpt-4o for quality reasoning. No hallucination risk on counts because
-    the LLM only narrates pre-computed numbers — it never touches raw data directly.
+    Model and effort come from the caller's analysis_depth (see
+    ANALYSIS_DEPTH_PRESETS). No hallucination risk on counts at any depth
+    because the LLM only narrates pre-computed numbers — it never touches raw
+    data directly.
     """
     st = _state_for(user)
-    api_key = st.get("api_key")
     df = _get_export_df(st)
     if df is None:
         raise HTTPException(status_code=400, detail="No data loaded")
@@ -1338,44 +1459,36 @@ async def analyse(body: AnalyseRequest, user: Dict[str, Any] = Depends(get_curre
 
     # --- Step 4: Fire all LLM calls concurrently ---
     semaphore = asyncio.Semaphore(5)
-    timeout = aiohttp.ClientTimeout(total=60)
+    preset = ANALYSIS_DEPTH_PRESETS[body.analysis_depth]
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        # Executive summary
-        summary_task = _call_openai(
-            session, semaphore, summary_prompt,
-            model="gpt-4o", response_json=True, max_tokens=400, api_key=api_key,
-        )
-        # Taglines — one per chart
-        tagline_tasks = [
-            _call_openai(
-                session, semaphore, prompt,
-                model="gpt-4o", response_json=True, max_tokens=100, api_key=api_key,
-            )
-            for _, prompt in chart_prompts
-        ]
+    # Executive summary
+    summary_task = _call_claude(
+        semaphore, summary_prompt, schema=SUMMARY_SCHEMA, **preset["summary"],
+    )
+    # Taglines — one per chart
+    tagline_tasks = [
+        _call_claude(semaphore, prompt, schema=TAGLINE_SCHEMA, **preset["tagline"])
+        for _, prompt in chart_prompts
+    ]
 
-        all_tasks = [summary_task] + tagline_tasks
-        all_results = await asyncio.gather(*all_tasks)
+    all_results = await asyncio.gather(summary_task, *tagline_tasks)
 
-    # --- Step 5: Parse results ---
-    summary_raw = all_results[0]
-    tagline_raws = all_results[1:]
+    # --- Step 5: Collect results ---
+    summary_result = all_results[0]
+    tagline_results = all_results[1:]
 
-    try:
-        bullets = json.loads(summary_raw).get("bullets", [])
-    except Exception:
-        bullets = ["Summary could not be generated — please retry."]
+    bullets = summary_result.get("bullets") or [
+        "Summary could not be generated — please retry."
+    ]
 
-    taglines: Dict[str, str] = {}
-    for (label, _), raw in zip(chart_prompts, tagline_raws):
-        try:
-            taglines[label] = json.loads(raw).get("tagline", "")
-        except Exception:
-            taglines[label] = ""
+    taglines: Dict[str, str] = {
+        label: (result.get("tagline") or "")
+        for (label, _), result in zip(chart_prompts, tagline_results)
+    }
 
     return {
         "executive_summary": bullets,
         "chart_taglines": taglines,
-        "stats_used": stats,  # Return so frontend can display/verify
+        "stats_used": stats,       # Return so frontend can display/verify
+        "analysis_depth": body.analysis_depth,
     }

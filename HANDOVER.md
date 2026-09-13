@@ -28,7 +28,8 @@ index.html  ── GitHub Pages (static SPA; parses files in-browser)
    ▼
 main.py  ── FastAPI on any Docker host  (currently run locally in dev)
    │  verifies the JWT, isolates each user's session, calls OpenAI
-   ├── OpenAI API   (gpt-4o-mini tagging, gpt-4o analytics, embeddings)
+   ├── Anthropic API (Claude Sonnet 5 tagging, Claude Opus 4.8 analytics)
+   ├── OpenAI API   (embeddings only)
    └── Supabase     (Auth + Postgres via PostgREST, service-role key)
 ```
 
@@ -46,7 +47,7 @@ backend.
 | `Dockerfile` | Builds & runs the backend on any Docker host |
 | `.env.example` | All backend env vars (copy to `.env`) |
 | `supabase/schema.sql` | DB migration — `datasets`, `dashboards`, `dashboard_shares` |
-| `tests/test_e2e.py` | End-to-end tests (OpenAI + storage mocked) |
+| `tests/test_e2e.py` | End-to-end tests (Claude + storage mocked) |
 | `.github/workflows/keep-supabase-awake.yml` | Daily ping so the free Supabase project doesn't pause |
 | `README.md`, `DEV_GUIDE.md`, `LOCAL_DEV.md`, `SUPABASE_SETUP.md` | Docs |
 
@@ -56,7 +57,8 @@ Backend env vars (see `.env.example`):
 
 | Var | Secret? | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | **secret** | OpenAI access (tagging + analytics) |
+| `ANTHROPIC_API_KEY` | **secret** | Claude access (tagging + dashboards + analytics) |
+| `OPENAI_API_KEY` | **secret** | OpenAI access (embeddings only) |
 | `SUPABASE_URL` | public | project URL, for JWT (JWKS) verification + PostgREST |
 | `SUPABASE_JWT_SECRET` | **secret** | only if the project uses legacy HS256 tokens (current project uses new ES256 keys, so this is blank) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **secret** | backend read/write to Postgres (saved datasets/dashboards) |

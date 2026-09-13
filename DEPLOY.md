@@ -17,7 +17,7 @@ You also need a **Supabase** project (free tier) for auth + storage — see [`SU
 
 1. A **Supabase** project. Run [`supabase/schema.sql`](supabase/schema.sql) in the SQL Editor to create the `datasets`, `dashboards`, and `dashboard_shares` tables.
 2. In Supabase → **Authentication → Providers → Email**: make sure **Email** is enabled (it is by default). This is what powers both magic links and email+password.
-3. An **OpenAI API key** (for the enrichment + analysis calls).
+3. An **Anthropic API key** (tagging, dashboard generation, analysis) and an **OpenAI API key** (embeddings only — used by the analytics retrieval step).
 4. From Supabase → **Project Settings → API**, note: `Project URL`, `anon`/publishable key, `service_role` key, and the **JWT secret** (Settings → API → JWT Settings).
 
 ---
@@ -37,7 +37,8 @@ You also need a **Supabase** project (free tier) for auth + storage — see [`SU
    | `SUPABASE_URL` | your Supabase Project URL |
    | `SUPABASE_SERVICE_ROLE_KEY` | your `service_role` key (secret — backend only) |
    | `SUPABASE_JWT_SECRET` | your Supabase JWT secret |
-   | `OPENAI_API_KEY` | your OpenAI key |
+   | `ANTHROPIC_API_KEY` | your Anthropic key |
+   | `OPENAI_API_KEY` | your OpenAI key (embeddings only) |
    | `ALLOWED_EMAIL_DOMAIN` | `mcsaatchi.com` |
 
    Do **not** set `AUTH_DISABLED` in production.
