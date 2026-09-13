@@ -39,13 +39,17 @@ index.html          → GitHub Pages (static frontend)
 main.py (FastAPI)    → any Docker host
      │  verifies the JWT, isolates each user's session
      ▼
-OpenAI API           → GPT-4o-mini (tagging) / GPT-4o (analytics)
+Anthropic API        → Claude Sonnet 5 (tagging) / Claude Opus 4.8 (dashboards)
+OpenAI API           → text-embedding-3-small (embeddings only)
 ```
 
 The frontend parses files in-browser and sends rows to the backend. The backend
 verifies the caller's Supabase token, keeps each user's working data separate,
-calls OpenAI, and returns results. The OpenAI key lives on the server — never
+calls Claude, and returns results. Both API keys live on the server — never
 sent by the client.
+
+Two providers on purpose: Claude handles all reasoning; OpenAI is used only for
+embeddings, which Anthropic doesn't offer and the analytics retrieval needs.
 
 ---
 
@@ -86,7 +90,7 @@ cd self-service-toolkit
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env          # then set OPENAI_API_KEY (and SUPABASE_URL)
+cp .env.example .env          # then set ANTHROPIC_API_KEY, OPENAI_API_KEY, SUPABASE_URL
 
 # Terminal 1 — backend
 uvicorn main:app --reload --port 8000
@@ -114,7 +118,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest -q
 ```
 
-The suite runs the whole flow with the OpenAI call mocked (deterministic,
+The suite runs the whole flow with the Claude call mocked (deterministic,
 offline, free): `.xlsx` upload, the tagging pipeline (including conditional
 branching), CSV/XLSX export, AI-prompt suggestion, and the auth layer
 (rejection + per-user isolation).
@@ -128,7 +132,8 @@ branching), CSV/XLSX export, AI-prompt suggestion, and the auth layer
 
 | Variable | Purpose |
 |---|---|
-| `OPENAI_API_KEY` | OpenAI access (required) |
+| `ANTHROPIC_API_KEY` | Claude access — tagging, dashboards, analysis (required) |
+| `OPENAI_API_KEY` | OpenAI access — embeddings only (required for analytics) |
 | `SUPABASE_URL` | your project URL, for verifying new-style tokens |
 | `SUPABASE_JWT_SECRET` | only if your project uses the legacy HS256 secret |
 | `ALLOWED_EMAIL_DOMAIN` | restrict sign-in (default `mcsaatchi.com`) |

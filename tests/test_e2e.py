@@ -76,11 +76,13 @@ def _fake_values_for_prompt(prompt: str) -> str:
 
 
 @pytest.fixture(autouse=True)
-def _mock_openai(monkeypatch):
-    async def fake_call(session, semaphore, prompt, **kwargs):
-        return _fake_values_for_prompt(prompt)
+def _mock_claude(monkeypatch):
+    async def fake_call(semaphore, prompt, **kwargs):
+        return json.loads(_fake_values_for_prompt(prompt))
 
-    monkeypatch.setattr(main, "_call_openai", fake_call)
+    monkeypatch.setattr(main, "_call_claude", fake_call)
+    # _run_pipeline refuses to start without a server key configured.
+    monkeypatch.setattr(main, "ANTHROPIC_API_KEY", "sk-ant-test")
     main._sessions.clear()      # fresh per-user state each test
     yield
     main._sessions.clear()
@@ -231,12 +233,12 @@ def test_xlsx_export_roundtrips(client):
 # 3. AI-suggested prompt
 # --------------------------------------------------------------------------
 def test_suggest_prompt_returns_text(client, monkeypatch):
-    async def fake_call(session, semaphore, prompt, **kwargs):
+    async def fake_call(semaphore, prompt, **kwargs):
         # sanity: the field name is passed into the LLM prompt
         assert "urgency" in prompt
-        return json.dumps({"prompt": "Rate urgency as high, medium, low, or none."})
+        return {"prompt": "Rate urgency as high, medium, low, or none."}
 
-    monkeypatch.setattr(main, "_call_openai", fake_call)
+    monkeypatch.setattr(main, "_call_claude", fake_call)
     r = client.post("/api/suggest-prompt", json={
         "field_name": "urgency",
         "reads_from": ["translated_text"],
@@ -247,11 +249,64 @@ def test_suggest_prompt_returns_text(client, monkeypatch):
     assert "urgency" in r.json()["prompt"].lower()
 
 
-def test_suggest_prompt_empty_llm_is_502(client, monkeypatch):
-    async def empty(session, semaphore, prompt, **kwargs):
-        return "{}"
+def test_analyse_depth_routes_to_expected_models(client, monkeypatch):
+    """Depth must steer summary and taglines independently — that split is the
+    whole point of the control (taglines are one call per chart)."""
+    _load_sample(client)
+    client.post("/api/upload-config", json=CONFIG)
+    client.post("/api/process", json={"max_rows": 0, "max_concurrent": 8})
 
-    monkeypatch.setattr(main, "_call_openai", empty)
+    calls = []
+
+    async def record(semaphore, prompt, **kwargs):
+        calls.append((kwargs["model"], kwargs["thinking"]))
+        return {"bullets": ["b"], "tagline": "t"}
+
+    monkeypatch.setattr(main, "_call_claude", record)
+
+    body = {
+        "column_map": {"text": ["translated_text"], "categorical": ["ai_sentiment"]},
+        "charts": [
+            {"chart_type": "bar", "column": "ai_topic", "label": "Topics", "summary": {"tyres": 6}},
+            {"chart_type": "bar", "column": "ai_sentiment", "label": "Sentiment", "summary": {"positive": 6}},
+        ],
+    }
+
+    expected = {
+        # depth        summary                      taglines (x2 charts)
+        "standard": (main.TAGGING_MODEL, main.TAGGING_MODEL),
+        "balanced": (main.DASHBOARD_MODEL, main.TAGGING_MODEL),
+        "deep": (main.DASHBOARD_MODEL, main.DASHBOARD_MODEL),
+    }
+
+    for depth, (summary_model, tagline_model) in expected.items():
+        calls.clear()
+        r = client.post("/api/analyse", json={**body, "analysis_depth": depth})
+        assert r.status_code == 200, r.text
+        assert r.json()["analysis_depth"] == depth
+
+        models = [m for m, _ in calls]
+        assert models == [summary_model, tagline_model, tagline_model], (depth, models)
+        # Thinking rides with the Opus tier and must stay off for Sonnet, or
+        # reasoning tokens silently eat the small max_tokens budget.
+        for model, thinking in calls:
+            assert thinking == (model == main.DASHBOARD_MODEL), (depth, model, thinking)
+
+    # Balanced is the default when the client sends no preference.
+    calls.clear()
+    r = client.post("/api/analyse", json=body)
+    assert r.status_code == 200
+    assert r.json()["analysis_depth"] == "balanced"
+
+    # An unknown depth is rejected rather than silently downgraded.
+    assert client.post("/api/analyse", json={**body, "analysis_depth": "turbo"}).status_code == 422
+
+
+def test_suggest_prompt_empty_llm_is_502(client, monkeypatch):
+    async def empty(semaphore, prompt, **kwargs):
+        return {}
+
+    monkeypatch.setattr(main, "_call_claude", empty)
     r = client.post("/api/suggest-prompt", json={"field_name": "topic"})
     assert r.status_code == 502
 

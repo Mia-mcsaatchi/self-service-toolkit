@@ -536,6 +536,16 @@
           <small>Select any additional columns you want charted — sentiment tags, dates, topics, etc.</small>
         </div>
 
+        <div class="form-group">
+          <label>Analysis depth</label>
+          <select id="analyticsDepth">
+            <option value="standard">Standard — quick summary and taglines (cheapest)</option>
+            <option value="balanced" selected>Balanced — considered summary, quick taglines (recommended)</option>
+            <option value="deep">Deep — considered summary and taglines (slowest, most expensive)</option>
+          </select>
+          <small>Taglines are generated one per chart, so they drive most of the cost on a busy dashboard. Balanced keeps the executive summary thorough while keeping those cheap.</small>
+        </div>
+
         <button class="btn btn-primary" id="generateDashboardBtn" onclick="generateDashboard()">Generate dashboard</button>
       </div>
 
@@ -1365,6 +1375,7 @@ async function interpretIntent(intent, textCol, extraCols, allRows) {
 
 async function generateDashboard() {
   const intent = document.getElementById('analyticsIntent').value.trim();
+  const depth = document.getElementById('analyticsDepth').value;
   const textCol = document.getElementById('analyticsTextCol').value;
   const extraCols = Array.from(document.querySelectorAll('#analyticsExtraCols input:checked')).map(cb => cb.value);
 
@@ -1422,6 +1433,7 @@ async function generateDashboard() {
         column_map: columnMap,
         charts: charts.map(c => ({ chart_type:c.type, column:c.column, label:c.label, summary:chartSummary(c) })),
         dataset_label: 'social listening dataset',
+        analysis_depth: depth,
       }),
     });
     const ad = await ar.json();
