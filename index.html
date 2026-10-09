@@ -561,6 +561,9 @@
       <div id="dashboardOutput" class="hidden" style="margin-top:24px;">
 
         <!-- KPI tiles -->
+        <!-- Shown when the AI couldn't plan the charts and a default board was used -->
+        <div id="dashboardNotice" class="alert alert-info hidden" style="margin-bottom:16px;"></div>
+
         <div id="kpiTiles" class="kpi-row"></div>
 
         <!-- Interactive filter bar -->
@@ -1401,6 +1404,9 @@ async function generateDashboard() {
     setLoadingMsg('Interpreting your request…');
     const allCols = [textCol, ...extraCols].filter(Boolean);
     const interpreted = await interpretIntent(intent, textCol, extraCols, _allRows);
+    const notice = document.getElementById('dashboardNotice');
+    notice.textContent = interpreted.fallback ? (interpreted.notice || '') : '';
+    notice.classList.toggle('hidden', !interpreted.fallback);
     const chartConfigs = (interpreted.charts || []).filter(c => c.column && _resultColumns.includes(c.column));
 
     if (!chartConfigs.length) throw new Error('Could not identify any relevant charts from your request. Try being more specific.');
@@ -2195,6 +2201,7 @@ async function openDashboard(id) {
     const step4 = document.getElementById('step4');
     step4.classList.add('active');
     document.getElementById('analyticsInputPanel').classList.add('hidden');
+    document.getElementById('dashboardNotice').classList.add('hidden');
     document.getElementById('dashboardOutput').classList.remove('hidden');
     renderExecutiveSummary((d.config && d.config.summary) || []);
     step4.querySelector('.step-title').textContent = d.name;

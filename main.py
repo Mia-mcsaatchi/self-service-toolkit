@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List, Literal, Optional
@@ -19,6 +20,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 load_dotenv()
+
+logger = logging.getLogger("self_service_toolkit")
 
 # Two providers, deliberately:
 #   • Anthropic (Claude) for every text/reasoning call — tagging, prompt drafting,
@@ -545,22 +548,35 @@ async def _call_claude(
         "format": {"type": "json_schema", "schema": schema},
         "effort": effort,
     }
+    params: Dict[str, Any] = dict(
+        model=model,
+        max_tokens=max_tokens,
+        # Adaptive is the default on Sonnet 5 when omitted, so the
+        # per-row tagging path has to disable it explicitly or every
+        # row pays for reasoning it doesn't need.
+        thinking={"type": "adaptive"} if thinking else {"type": "disabled"},
+        output_config=output_config,
+        messages=[{"role": "user", "content": prompt}],
+    )
     try:
         async with semaphore:
-            resp = await client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                # Adaptive is the default on Sonnet 5 when omitted, so the
-                # per-row tagging path has to disable it explicitly or every
-                # row pays for reasoning it doesn't need.
-                thinking={"type": "adaptive"} if thinking else {"type": "disabled"},
-                output_config=output_config,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            if thinking:
+                # Reasoning calls can run for minutes before the first answer
+                # token. Non-streaming sends nothing until the end, so the
+                # client's read timeout fired (and was retried) on large
+                # dashboards. Streaming keeps the connection active throughout.
+                async with client.messages.stream(**params) as stream:
+                    resp = await stream.get_final_message()
+            else:
+                resp = await client.messages.create(**params)
     except Exception:
+        # Still degrade to {} for callers, but leave a trace — swallowing this
+        # silently is what made "Failed to interpret intent" undiagnosable.
+        logger.exception("Claude call failed (model=%s, effort=%s)", model, effort)
         return {}
 
     if resp.stop_reason == "refusal":
+        logger.warning("Claude refused (model=%s, details=%s)", model, resp.stop_details)
         return {}
 
     text = next((b.text for b in resp.content if b.type == "text"), "")
@@ -568,6 +584,8 @@ async def _call_claude(
         return json.loads(text)
     except Exception:
         # Truncation (stop_reason == "max_tokens") is the realistic cause here.
+        logger.warning("Claude returned unparseable JSON (model=%s, stop_reason=%s)",
+                       model, resp.stop_reason)
         return {}
 
 
@@ -1117,9 +1135,54 @@ async def public_dashboard(token: str):
 # Takes user's plain-English intent + column summary → returns chart configs
 # ---------------------------------------------------------------------------
 
+_SENTIMENT_WORDS = ("positive", "negative", "neutral", "mixed")
+
+
+def _fallback_chart_plan(column_summary: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Pick a sensible default board from column types alone.
+
+    Used when the model can't plan the charts, so the dashboard (and the manual
+    chart builder that lives on it) still opens instead of dead-ending.
+    """
+    sentiment, dates, categories, texts = [], [], [], []
+    for col, info in (column_summary or {}).items():
+        kind = (info or {}).get("type")
+        if kind == "categorical":
+            values = [str(v).lower() for v in (info.get("unique_values") or [])]
+            if any(v in _SENTIMENT_WORDS for v in values):
+                sentiment.append(col)
+            else:
+                categories.append((col, len(values)))
+        elif kind == "datetime":
+            dates.append(col)
+        elif kind == "text":
+            texts.append(col)
+
+    charts: List[Dict[str, str]] = []
+    for col in sentiment[:2]:
+        charts.append({"type": "sentiment_bar", "column": col, "label": f"Sentiment — {col}"})
+    for col in dates[:1]:
+        charts.append({"type": "line", "column": col, "label": f"Volume over time — {col}"})
+    for col, n in categories:
+        if len(charts) >= 5:
+            break
+        if n <= 8:
+            charts.append({"type": "pie", "column": col, "label": f"Share of {col}"})
+        else:
+            charts.append({"type": "bar", "column": col, "label": f"Breakdown of {col}"})
+    for col in texts[:1]:
+        charts.append({"type": "verbatims", "column": col, "label": f"Sample verbatims — {col}"})
+    return charts[:6]
+
+
 @app.post("/api/interpret")
 async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depends(get_current_user)):
     """LLM interprets user intent into chart configs. Uses server-side API key."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not set on the backend — add it to the server's environment and restart.",
+        )
     prompt = (
         f"You are a data analyst building a dashboard. "
         f"The dataset is: {body.dataset_label}\n"
@@ -1155,9 +1218,25 @@ async def interpret_intent(body: InterpretRequest, user: Dict[str, Any] = Depend
         effort="high",
         thinking=True,
     )
-    if not result.get("charts"):
-        raise HTTPException(status_code=500, detail="Failed to interpret intent")
-    return result
+    if result.get("charts"):
+        return result
+
+    # The model didn't produce a plan (error, refusal, truncation — see the
+    # logs). Fall back to a default board rather than blocking the dashboard.
+    charts = _fallback_chart_plan(body.column_summary)
+    if not charts:
+        raise HTTPException(
+            status_code=502,
+            detail="The AI couldn't plan charts for this request, and none of the selected "
+                   "columns could be charted automatically. Tick a sentiment, topic, country "
+                   "or date column under “Any other columns to include?” and try again.",
+        )
+    return {
+        "charts": charts,
+        "fallback": True,
+        "notice": "The AI couldn't plan charts for this request, so here's a default board "
+                  "built from your columns. Add or remove charts below, or try again.",
+    }
 
 
 # ---------------------------------------------------------------------------
