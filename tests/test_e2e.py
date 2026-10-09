@@ -225,6 +225,93 @@ def test_result_data_json_survives_messy_text(client):
     assert body["rows"][0]["translated_text"].startswith("Replacing the stock tyres")
 
 
+# --------------------------------------------------------------------------
+# 2b. Locked label lists and tagging repeated posts once
+# --------------------------------------------------------------------------
+def test_allowed_values_become_an_enum():
+    schema = main._tagging_schema(["sentiment", "summary"],
+                                  {"sentiment": [" positive", "negative", "positive", ""]})
+    assert schema["properties"]["sentiment"] == {
+        "type": "string", "enum": ["positive", "negative", "unsure"]}   # trimmed, deduped, unsure added
+    assert schema["properties"]["summary"] == {"type": "string"}     # no list -> free text
+    assert schema["required"] == ["sentiment", "summary"]
+
+
+def _record_calls(monkeypatch, answer=lambda prompt: {}):
+    calls = []
+
+    async def fake(semaphore, prompt, **kwargs):
+        calls.append({"prompt": prompt, "schema": kwargs.get("schema")})
+        return answer(prompt)
+
+    monkeypatch.setattr(main, "_call_claude", fake)
+    return calls
+
+
+def _upload_rows(client, texts):
+    client.post("/api/upload-data", json={"columns": ["post"], "rows": [[t] for t in texts]})
+
+
+def test_pipeline_locks_answers_to_the_allowed_list(client, monkeypatch):
+    calls = _record_calls(monkeypatch, lambda p: {"sentiment": "negative"})
+    _upload_rows(client, ["Charging is slow"])
+    client.post("/api/upload-config", json={"fields": [{
+        "name": "sentiment", "prompt": "Classify sentiment.", "reads_from": ["post"],
+        "allowed_values": ["positive", "negative", "neutral"]}]})
+    r = client.post("/api/process", json={"max_rows": 0, "max_concurrent": 4})
+    assert r.status_code == 200, r.text
+
+    assert calls[0]["schema"]["properties"]["sentiment"]["enum"] == ["positive", "negative", "neutral", "unsure"]
+    assert "Answer with exactly one of: positive, negative, neutral" in calls[0]["prompt"]
+
+
+SENTIMENT_ONLY = {"fields": [{"name": "sentiment", "prompt": "Classify sentiment.", "reads_from": ["post"]}]}
+
+
+def test_repeated_posts_are_tagged_once(client, monkeypatch):
+    calls = _record_calls(monkeypatch, lambda p: {"sentiment": "positive"})
+    _upload_rows(client, [
+        "Love the range!",
+        "love the   RANGE!",                                    # case + spacing
+        "Love the range! https://example.com/post/1",           # link added
+        "Charging is slow",
+    ])
+    client.post("/api/upload-config", json=SENTIMENT_ONLY)
+    r = client.post("/api/process", json={"max_rows": 0, "max_concurrent": 4}).json()
+
+    assert len(calls) == 2                                      # one per distinct post
+    assert r["calls_made"] == 2 and r["calls_reused"] == 2
+    out = client.get("/api/result-data").json()["rows"]
+    assert [row["sentiment"] for row in out] == ["positive"] * 4  # every copy gets the answer
+
+
+def test_repeat_cache_spans_chunks_and_resets_per_run(client, monkeypatch):
+    calls = _record_calls(monkeypatch, lambda p: {"sentiment": "positive"})
+    _upload_rows(client, ["Same post", "Other post", "Same post", "Other post"])
+    client.post("/api/upload-config", json=SENTIMENT_ONLY)
+
+    for offset in (0, 2):                                       # two chunks of 2 rows
+        client.post("/api/process", json={"max_rows": 0, "max_concurrent": 4,
+                                           "offset": offset, "limit": 2})
+    assert len(calls) == 2                                      # chunk 2 reused chunk 1
+
+    client.post("/api/process", json={"max_rows": 0, "max_concurrent": 4})  # a new run
+    assert len(calls) == 4                                      # re-tags instead of reusing
+
+
+def test_failed_answers_are_not_reused(client, monkeypatch):
+    replies = iter([{}, {"sentiment": "positive"}])            # first call fails
+    calls = _record_calls(monkeypatch, lambda p: next(replies))
+    _upload_rows(client, ["Same post", "Same post"])
+    client.post("/api/upload-config", json=SENTIMENT_ONLY)
+    for offset in (0, 1):                                       # copies in separate chunks
+        client.post("/api/process", json={"max_rows": 0, "max_concurrent": 4,
+                                           "offset": offset, "limit": 1})
+    assert len(calls) == 2                                      # the copy got a fresh try
+    out = client.get("/api/result-data").json()["rows"]
+    assert [row["sentiment"] for row in out] == ["unsure", "positive"]
+
+
 def test_results_survive_backend_restart_via_restore(client):
     """The browser keeps a copy of tagged results; after a restart wipes the
     in-memory session it re-sends them through /api/upload-data."""

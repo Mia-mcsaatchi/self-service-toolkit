@@ -256,6 +256,9 @@ class Field(BaseModel):
     is_cluster: bool = False
     mode: str = "default"
     branches: List[Branch] = []
+    # Optional fixed answer list. When set, the JSON schema only accepts these
+    # values (plus "unsure"), so "Positive" / "pos" / "good" can't creep in.
+    allowed_values: List[str] = []
 
 class FieldConfig(BaseModel):
     base_prompt: str = BASE_PROMPT
@@ -483,7 +486,11 @@ def _build_row_prompt(base_prompt: str, fields: List[Dict], row: pd.Series) -> s
         prompt_text = (f.get("prompt") or "").strip()
         deps = [c for c in (f.get("reads_from") or []) if c in field_names and c != name]
         dep_note = f" (based on {', '.join(deps)})" if deps else ""
-        instruction_lines.append(f'  "{name}": {prompt_text}{dep_note}')
+        allowed = _clean_allowed(f.get("allowed_values"))
+        allowed_note = (
+            f" Answer with exactly one of: {', '.join(allowed)} (or \"unsure\")." if allowed else ""
+        )
+        instruction_lines.append(f'  "{name}": {prompt_text}{dep_note}{allowed_note}')
 
     keys = ", ".join(f'"{f["name"]}"' for f in fields if (f.get("name") or "").strip())
 
@@ -596,12 +603,33 @@ async def _call_claude(
 # supported by structured outputs, so counts like "2-6 charts" stay in the
 # prompt text rather than the schema.
 
-def _tagging_schema(field_names: List[str]) -> Dict[str, Any]:
+def _clean_allowed(values: Optional[List[Any]]) -> List[str]:
+    """Trim, drop blanks and duplicates, keep the user's order."""
+    out: List[str] = []
+    for v in values or []:
+        s = str(v).strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def _tagging_schema(
+    field_names: List[str], allowed: Optional[Dict[str, List[str]]] = None,
+) -> Dict[str, Any]:
     """One object with a string per requested output column. Built per call
-    group, so rows sharing a config reuse the same (cached) schema."""
+    group, so rows sharing a config reuse the same (cached) schema. A field with
+    an allowed-values list becomes an enum, with "unsure" always permitted."""
+    allowed = allowed or {}
+    props: Dict[str, Any] = {}
+    for fn in field_names:
+        values = _clean_allowed(allowed.get(fn))
+        if values:
+            props[fn] = {"type": "string", "enum": values + (["unsure"] if "unsure" not in values else [])}
+        else:
+            props[fn] = {"type": "string"}
     return {
         "type": "object",
-        "properties": {fn: {"type": "string"} for fn in field_names},
+        "properties": props,
         "required": list(field_names),
         "additionalProperties": False,
     }
@@ -713,12 +741,27 @@ def _resolve_prompt(field: Dict[str, Any], row: pd.Series) -> Optional[str]:
 # Pipeline
 # ---------------------------------------------------------------------------
 
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+
+
+def _dedupe_key(built_prompt: str) -> str:
+    """Fingerprint a fully built row prompt so reposts and copies share one
+    answer. Case, spacing and links are ignored; anything else that differs
+    (including the field prompts) produces a different key, so editing a
+    prompt re-tags everything."""
+    return " ".join(_URL_RE.sub(" ", built_prompt).lower().split())
+
+
 async def _run_pipeline(
     df: pd.DataFrame,
     config: Dict[str, Any],
     max_rows: int,
     max_concurrent: int,
+    cache: Optional[Dict[str, Dict[str, Any]]] = None,
+    stats: Optional[Dict[str, int]] = None,
 ) -> pd.DataFrame:
+    """Tag each row. `cache` maps a dedupe key to a finished answer and can be
+    shared across the chunks of one run; `stats` counts calls made and reused."""
     if not ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set on the server.")
 
@@ -735,6 +778,32 @@ async def _run_pipeline(
     base_prompt = config.get("base_prompt", BASE_PROMPT)
 
     semaphore = asyncio.Semaphore(max_concurrent)
+    cache = {} if cache is None else cache
+    stats = {} if stats is None else stats
+    stats.setdefault("calls", 0)
+    stats.setdefault("reused", 0)
+    # Identical prompts in flight at the same time await one shared call.
+    inflight: Dict[str, "asyncio.Task[Dict[str, Any]]"] = {}
+
+    async def tag_once(built_prompt: str, schema: Dict[str, Any]) -> Dict[str, Any]:
+        key = _dedupe_key(built_prompt)
+        if key in cache:
+            stats["reused"] += 1
+            return cache[key]
+        task = inflight.get(key)
+        if task is not None:
+            stats["reused"] += 1
+            return await task
+        stats["calls"] += 1
+        task = asyncio.ensure_future(_call_claude(
+            semaphore, built_prompt, schema=schema,
+            model=TAGGING_MODEL, max_tokens=2048, effort="low",
+        ))
+        inflight[key] = task
+        parsed = await task
+        if parsed:            # don't cache failures — a later copy gets a fresh try
+            cache[key] = parsed
+        return parsed
 
     async def process_row(i: int) -> Dict[str, str]:
         row = df.iloc[i]
@@ -759,22 +828,20 @@ async def _run_pipeline(
                     "prompt": resolved_prompt,
                     "reads_from": f.get("reads_from") or [],
                     "field_names": [],
+                    "allowed": {},
                 }
             call_groups[group_key]["field_names"].append(fname)
+            call_groups[group_key]["allowed"][fname] = f.get("allowed_values") or []
 
         for group in call_groups.values():
             group_fields = [
-                {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
+                {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"],
+                 "allowed_values": group["allowed"].get(fn, [])}
                 for fn in group["field_names"]
             ]
             built_prompt = _build_row_prompt(base_prompt, group_fields, row)
-            parsed = await _call_claude(
-                semaphore,
-                built_prompt,
-                schema=_tagging_schema(group["field_names"]),
-                model=TAGGING_MODEL,
-                max_tokens=2048,
-                effort="low",
+            parsed = await tag_once(
+                built_prompt, _tagging_schema(group["field_names"], group["allowed"]),
             )
             for fn in group["field_names"]:
                 results[fn] = str(parsed.get(fn, "unsure"))
@@ -815,8 +882,16 @@ async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_curre
     end = min(total, offset + body.limit) if (body.limit and body.limit > 0) else total
     chunk = df.iloc[offset:end].reset_index(drop=True)
 
+    # One repeat cache per run, shared by its chunks; offset 0 starts a new run.
+    if offset == 0 or "tag_cache" not in st:
+        st["tag_cache"] = {}
+        st["tag_stats"] = {"calls": 0, "reused": 0}
+
     try:
-        result = await _run_pipeline(chunk, config, 0, body.max_concurrent)
+        result = await _run_pipeline(
+            chunk, config, 0, body.max_concurrent,
+            cache=st["tag_cache"], stats=st["tag_stats"],
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -832,6 +907,8 @@ async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_curre
         "processed": end,
         "total": total,
         "done": end >= total,
+        "calls_made": st["tag_stats"]["calls"],
+        "calls_reused": st["tag_stats"]["reused"],
         "row_count": len(acc),
         "columns": acc.columns.tolist(),
         "preview": acc.head(10).fillna("").to_dict("records"),
