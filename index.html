@@ -660,7 +660,7 @@ async function api(path, opts = {}) {
 // ── Prompt bank ───────────────────────────────────────────────────────────────
 const PROMPT_BANK = [
   { label: '— Select from prompt bank —', value: '' },
-  { label: 'Sentiment classification', value: 'sentiment',
+  { label: 'Sentiment classification', value: 'sentiment', allowed: ['positive', 'negative', 'neutral', 'mixed'],
     prompt: 'Classify the sentiment of the text. Return exactly one of: positive, negative, neutral, mixed. Use "unsure" only if the text contains no opinion at all.' },
   { label: 'Sentiment + justification (cluster)', value: 'sentiment_cluster', isCluster: true, clusterCols: 'sentiment, justification',
     prompt: 'Analyse the sentiment and return a JSON object with:\n- "sentiment": one of positive, negative, neutral, mixed\n- "justification": one sentence explaining why, under 20 words' },
@@ -672,15 +672,15 @@ const PROMPT_BANK = [
     prompt: 'Detect the language of the text. Return the full language name in English (e.g. French, German). Use "unsure" if too short or mixed.' },
   { label: 'Translation to English', value: 'translation',
     prompt: 'Translate the text to English. If already in English, return it unchanged. Keep meaning and tone close to the original.' },
-  { label: 'Purchase intent', value: 'purchase_intent',
+  { label: 'Purchase intent', value: 'purchase_intent', allowed: ['high', 'medium', 'low', 'none'],
     prompt: 'Assess whether the text signals intent to buy or consider a product. Return exactly one of: high, medium, low, none.' },
-  { label: 'Complaint detection', value: 'complaint',
+  { label: 'Complaint detection', value: 'complaint', allowed: ['yes', 'no', 'partial'],
     prompt: 'Determine whether the text contains a complaint or dissatisfaction. Return exactly one of: yes, no, partial.' },
   { label: 'Brand mention tagging', value: 'brand',
     prompt: 'Extract brand or product names mentioned. Return as comma-separated list (e.g. Ford, Tesla). If none, return "none".' },
   { label: 'One-sentence summary', value: 'summary',
     prompt: 'Summarise the text in a single sentence of no more than 20 words. Do not start with "The text" or "The author".' },
-  { label: 'Urgency scoring', value: 'urgency',
+  { label: 'Urgency scoring', value: 'urgency', allowed: ['high', 'medium', 'low', 'none'],
     prompt: 'Score the urgency expressed. Return exactly one of: high, medium, low, none.' },
   { label: 'Competitor comparison signal', value: 'competitor',
     prompt: 'Identify if the text compares a brand to a competitor. Return the competitor name, "none" if no comparison, or "unsure" if unclear.' },
@@ -907,6 +907,13 @@ function buildFieldCard(id, outputType, mode) {
       ${isCluster ? `<small>Each name becomes a separate column — all filled by one prompt call.</small>` : ''}
     </div>
 
+    ${isCluster ? '' : `
+    <div class="form-group">
+      <label>Allowed values <span style="font-weight:400;opacity:0.6">(optional)</span></label>
+      <input type="text" id="fallowed-${id}" placeholder="e.g. positive, negative, neutral, mixed">
+      <small>Comma-separated. Claude can only answer with one of these (or “unsure”), so charts and filters always match. Leave blank for free-text answers.</small>
+    </div>`}
+
     <div class="seg-label">Prompt mode</div>
     <div class="mode-toggle">
       <div class="mode-btn ${!isConditional ? 'mode-active-blue' : ''}" onclick="setMode(${id}, 'default')">Default — runs on all rows</div>
@@ -1131,6 +1138,8 @@ function applyPromptBank(id, selectEl) {
     const namesEl = document.getElementById('fname-' + id);
     if (namesEl) namesEl.value = entry.clusterCols;
   }
+  const allowedEl = document.getElementById('fallowed-' + id);
+  if (allowedEl) allowedEl.value = (entry.allowed || []).join(', ');
 }
 
 function applyBranchPromptBank(bid, selectEl) {
@@ -1175,6 +1184,9 @@ function collectFields() {
       ? namesRaw.split(',').map(n => n.trim()).filter(Boolean)
       : [namesRaw];
 
+    const allowed_values = isCluster ? [] :
+      (document.getElementById('fallowed-' + id)?.value || '').split(',').map(v => v.trim()).filter(Boolean);
+
     return names.map(name => ({
       name,
       prompt: isConditional ? '' : defaultPrompt,
@@ -1183,6 +1195,7 @@ function collectFields() {
       is_cluster: isCluster,
       mode,
       branches,
+      allowed_values,
     }));
   });
 }
@@ -1273,7 +1286,8 @@ async function runPipeline() {
       offset = d.processed;
       const pct = d.total ? Math.round(d.processed / d.total * 100) : 100;
       bar.style.width = pct + '%';
-      if (statusMsg) statusMsg.textContent = 'Tagging… ' + d.processed.toLocaleString() + ' / ' + d.total.toLocaleString() + ' rows (' + pct + '%)';
+      if (statusMsg) statusMsg.textContent = 'Tagging… ' + d.processed.toLocaleString() + ' / ' + d.total.toLocaleString() + ' rows (' + pct + '%)' +
+        (d.calls_reused ? ' · ' + d.calls_reused.toLocaleString() + ' repeats reused' : '');
     } while (d && !d.done);
 
     bar.style.width = '100%';
