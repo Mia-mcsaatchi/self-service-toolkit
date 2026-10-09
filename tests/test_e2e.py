@@ -13,11 +13,14 @@ Run:  pytest -q         (from the repo root, inside the venv)
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import json
+import logging
 import os
 import re
 import time
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -31,6 +34,10 @@ import jwt  # noqa: E402  (import after env is set)
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
+
+# Captured before the autouse fixture swaps in a fake, so _call_claude itself
+# can be tested against a stub client.
+_REAL_CALL_CLAUDE = main._call_claude
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +316,122 @@ def test_suggest_prompt_empty_llm_is_502(client, monkeypatch):
     monkeypatch.setattr(main, "_call_claude", empty)
     r = client.post("/api/suggest-prompt", json={"field_name": "topic"})
     assert r.status_code == 502
+
+
+# --------------------------------------------------------------------------
+# 3b. Dashboard planning (/api/interpret) never dead-ends the dashboard
+# --------------------------------------------------------------------------
+INTERPRET_BODY = {
+    "intent": "sentiment by market and what people complain about",
+    "column_summary": {
+        "post_text":         {"type": "text", "sample": ["Charging is slow", "Love the range"]},
+        "overall_sentiment": {"type": "categorical", "unique_values": ["Negative", "Neutral", "Positive"]},
+        "country_code":      {"type": "categorical", "unique_values": ["IT", "NL", "DE"]},
+        "post_date":         {"type": "datetime", "sample": ["2026-07-28", "2026-08-01"]},
+    },
+}
+
+
+def test_interpret_uses_model_plan(client, monkeypatch):
+    plan = {"charts": [{"type": "pie", "column": "country_code", "label": "Markets"}]}
+
+    async def ok(semaphore, prompt, **kwargs):
+        return plan
+
+    monkeypatch.setattr(main, "_call_claude", ok)
+    r = client.post("/api/interpret", json=INTERPRET_BODY)
+    assert r.status_code == 200
+    assert r.json() == plan                      # no fallback flag when the model answers
+
+
+def test_interpret_falls_back_when_model_fails(client, monkeypatch):
+    async def failed(semaphore, prompt, **kwargs):
+        return {}                                # timeout / refusal / bad JSON all look like this
+
+    monkeypatch.setattr(main, "_call_claude", failed)
+    r = client.post("/api/interpret", json=INTERPRET_BODY)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["fallback"] is True and body["notice"]
+    by_col = {c["column"]: c["type"] for c in body["charts"]}
+    assert by_col["overall_sentiment"] == "sentiment_bar"
+    assert by_col["post_date"] == "line"
+    assert by_col["country_code"] == "pie"       # 3 values -> proportion chart
+    assert by_col["post_text"] == "verbatims"
+
+
+def test_interpret_fallback_with_nothing_chartable_is_clear_error(client, monkeypatch):
+    async def failed(semaphore, prompt, **kwargs):
+        return {}
+
+    monkeypatch.setattr(main, "_call_claude", failed)
+    r = client.post("/api/interpret", json={"intent": "x", "column_summary": {"id": {"type": "numerical"}}})
+    assert r.status_code == 502
+    assert "Tick a sentiment" in r.json()["detail"]
+
+
+def test_interpret_without_server_key_is_503(client, monkeypatch):
+    monkeypatch.setattr(main, "ANTHROPIC_API_KEY", None)
+    r = client.post("/api/interpret", json=INTERPRET_BODY)
+    assert r.status_code == 503
+    assert "ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+# The real _call_claude (the autouse fixture swaps in a fake for everything else)
+class _FakeStream:
+    def __init__(self, resp):
+        self.resp = resp
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get_final_message(self):
+        return self.resp
+
+
+class _FakeMessages:
+    def __init__(self, resp=None, exc=None):
+        self.resp, self.exc, self.calls = resp, exc, []
+
+    def stream(self, **params):
+        self.calls.append("stream")
+        if self.exc:
+            raise self.exc
+        return _FakeStream(self.resp)
+
+    async def create(self, **params):
+        self.calls.append("create")
+        if self.exc:
+            raise self.exc
+        return self.resp
+
+
+def _resp(text, stop_reason="end_turn"):
+    return SimpleNamespace(stop_reason=stop_reason, stop_details=None,
+                           content=[SimpleNamespace(type="text", text=text)])
+
+
+def test_call_claude_streams_reasoning_calls_only(monkeypatch):
+    msgs = _FakeMessages(resp=_resp('{"charts": []}'))
+    monkeypatch.setattr(main, "_get_anthropic", lambda: SimpleNamespace(messages=msgs))
+    sem = asyncio.Semaphore(1)
+
+    assert asyncio.run(_REAL_CALL_CLAUDE(sem, "p", schema={}, thinking=True)) == {"charts": []}
+    assert asyncio.run(_REAL_CALL_CLAUDE(sem, "p", schema={}, thinking=False)) == {"charts": []}
+    assert msgs.calls == ["stream", "create"]    # long reasoning streams; per-row tagging doesn't
+
+
+def test_call_claude_logs_failures_instead_of_hiding_them(monkeypatch, caplog):
+    msgs = _FakeMessages(exc=RuntimeError("read timeout"))
+    monkeypatch.setattr(main, "_get_anthropic", lambda: SimpleNamespace(messages=msgs))
+
+    with caplog.at_level(logging.ERROR, logger="self_service_toolkit"):
+        out = asyncio.run(_REAL_CALL_CLAUDE(asyncio.Semaphore(1), "p", schema={}, thinking=True))
+    assert out == {}
+    assert "Claude call failed" in caplog.text and "read timeout" in caplog.text
 
 
 # --------------------------------------------------------------------------
