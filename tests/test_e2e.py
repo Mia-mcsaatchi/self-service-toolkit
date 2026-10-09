@@ -225,6 +225,29 @@ def test_result_data_json_survives_messy_text(client):
     assert body["rows"][0]["translated_text"].startswith("Replacing the stock tyres")
 
 
+def test_results_survive_backend_restart_via_restore(client):
+    """The browser keeps a copy of tagged results; after a restart wipes the
+    in-memory session it re-sends them through /api/upload-data."""
+    _load_sample(client)
+    client.post("/api/upload-config", json=CONFIG)
+    client.post("/api/process", json={"max_rows": 0, "max_concurrent": 8})
+    cached = client.get("/api/result-data").json()            # what the tab caches
+
+    main._sessions.clear()                                    # Render restart
+    assert client.get("/api/result-data").status_code == 400
+    assert client.get("/api/export/csv").status_code == 400
+
+    cols = cached["columns"]
+    r = client.post("/api/upload-data", json={
+        "columns": cols, "rows": [[row[c] for c in cols] for row in cached["rows"]]})
+    assert r.status_code == 200
+
+    back = client.get("/api/result-data").json()
+    assert back["columns"] == cols and len(back["rows"]) == len(SAMPLE_ROWS)
+    assert back["rows"][0]["ai_sentiment"] == "positive"      # tags came back, not just raw data
+    assert client.get("/api/export/csv").status_code == 200
+
+
 def test_xlsx_export_roundtrips(client):
     _load_sample(client)
     client.post("/api/upload-config", json=CONFIG)

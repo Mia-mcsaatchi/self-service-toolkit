@@ -1218,6 +1218,40 @@ function unlockStep3() {
 // well under free-tier / proxy timeouts — the whole job is many short requests.
 const PROCESS_CHUNK = 100;
 
+// ── Keep tagged results safe from backend restarts ──────────────────────────
+// The backend holds results in memory only, and Render's free tier restarts it
+// on every deploy and after ~15 min idle — wiping results that were paid for.
+// This tab keeps its own copy and hands it back when the server has lost it.
+let _tagResult = null;   // {columns, rows} — last full result this tab saw
+
+async function cacheResults() {
+  try {
+    const r = await api('/api/result-data');
+    if (r.ok) _tagResult = await r.json();
+  } catch {}
+}
+
+async function restoreResults() {
+  if (!_tagResult || !_tagResult.rows || !_tagResult.rows.length) return false;
+  const { columns, rows } = _tagResult;
+  const r = await api('/api/upload-data', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ columns, rows: rows.map(row => columns.map(c => row[c] ?? '')) }),
+  });
+  return r.ok;
+}
+
+// Like api(), but if the server answers 400 because it no longer has this
+// user's results, restore them from the tab's copy and retry once.
+async function apiWithRestore(path, opts = {}) {
+  let r = await api(path, { ...opts });
+  if (r.status === 400 && await restoreResults()) r = await api(path, { ...opts });
+  return r;
+}
+
+const RESULTS_GONE_MSG = 'Your results are no longer on the server — it restarts after a deploy or about 15 minutes idle. ' +
+  'Run the pipeline again, or load a saved dataset from Step 1.';
+
 async function runPipeline() {
   document.getElementById('processBtn').disabled = true;
   document.getElementById('processingStatus').classList.remove('hidden');
@@ -1243,6 +1277,7 @@ async function runPipeline() {
     } while (d && !d.done);
 
     bar.style.width = '100%';
+    await cacheResults();
     document.getElementById('processingStatus').classList.add('hidden');
     renderTable('resultsTable', d.columns, d.preview);
     document.getElementById('resultsSection').classList.remove('hidden');
@@ -1258,10 +1293,9 @@ async function runPipeline() {
 
 async function exportFile(fmt) {
   try {
-    const r = await api('/api/export/' + fmt);
+    const r = await apiWithRestore('/api/export/' + fmt);
     if (!r.ok) {
-      const text = await r.text();
-      alert('Export failed: ' + text);
+      alert('Export failed: ' + (r.status === 400 ? RESULTS_GONE_MSG : await r.text()));
       return;
     }
     const blob = await r.blob();
@@ -1396,8 +1430,12 @@ async function generateDashboard() {
   try {
     // Step 1: fetch full result as clean JSON (no fragile CSV round-trip)
     setLoadingMsg('Loading data…');
-    const dataRes = await api('/api/result-data');
-    if (!dataRes.ok) throw new Error('Could not fetch result data — run the pipeline first.');
+    const dataRes = await apiWithRestore('/api/result-data');
+    if (!dataRes.ok) {
+      if (dataRes.status === 400) throw new Error(RESULTS_GONE_MSG);
+      const err = await dataRes.json().catch(() => ({}));
+      throw new Error((err.detail || 'Could not load your results') + ' (HTTP ' + dataRes.status + ')');
+    }
     _allRows = (await dataRes.json()).rows || [];
 
     // Step 2: LLM interprets intent into chart configs
@@ -2310,6 +2348,7 @@ async function loadSavedDataset(id) {
     document.getElementById('saveDatasetRow').classList.toggle('hidden', !_storageEnabled);
     unlockStep2();
     unlockAnalytics(d.columns);
+    cacheResults();
   } catch (e) { alert('Load failed: ' + e.message); }
 }
 
