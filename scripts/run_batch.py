@@ -329,6 +329,8 @@ def main_cli() -> None:
         trim = dict(trim, chars=args.trim_chars) if trim and args.trim_chars > 0 else None
         if args.trim_chars > 0 and not config.get("trim"):
             sys.exit("--trim-chars needs a \"trim\" section in the config (columns + pattern).")
+    if trim and int(trim.get("chars", 500)) <= 0:
+        trim = None
     if trim:
         trimmed = sum(1 for col in trim["columns"] if col in df.columns
                       for t in df[col] if main._trim_text(t, trim["pattern"], int(trim.get("chars", 500))) != t)

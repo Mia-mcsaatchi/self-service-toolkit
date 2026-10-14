@@ -1,5 +1,5 @@
 {
-  "_about": "Cluster field for the Hydra brand-mention sample: one Claude call per row fills context, summary and status. Equivalent to one cluster card in Step 2 of the UI (names 'context, summary, status', mode Default, reads from cleaned_text + original_title). Long posts are trimmed to the opening plus ±500 characters around each 'hydra' match (see main._trim_text); override with run_batch.py --trim-chars.",
+  "_about": "Cluster field for the Hydra brand-mention sample: one Claude call per row fills context, summary and status. Equivalent to one cluster card in Step 2 of the UI (names 'context, summary, status', mode Default, reads from cleaned_text + original_title). Trimming is off (chars 0): tested ±500 on 300 posts, it changed ~7% more long-post statuses than run-to-run noise for only ~8% saving. Re-enable with run_batch.py --trim-chars N.",
   "fields": [
     {
       "names": [
@@ -21,6 +21,6 @@
       "cleaned_text"
     ],
     "pattern": "hydra",
-    "chars": 500
+    "chars": 0
   }
 }
