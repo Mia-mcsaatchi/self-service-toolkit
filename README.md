@@ -63,6 +63,8 @@ self-service-toolkit/
 ├── requirements-dev.txt  # Test dependencies (pytest, httpx)
 ├── Dockerfile            # Builds/runs the backend on any Docker host
 ├── .env.example          # Environment variable template
+├── scripts/run_tagging.py # Run a saved field config over a CSV from the command line
+├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)
 ├── README.md             # This file
@@ -108,6 +110,22 @@ Colleagues sign in with their `@mcsaatchi.com` email via a Supabase magic link,
 and each person's uploads and results are isolated. One-time setup is in
 **`SUPABASE_SETUP.md`**. The backend verifies both legacy (HS256) and new
 asymmetric (ES256/RS256) Supabase tokens.
+
+### Tagging a CSV from the command line
+
+`scripts/run_tagging.py` does what Steps 1–3 of the page do — upload, save the
+field config, tag in chunks, export — so a saved config in `configs/` can be
+re-run without clicking through the UI. With the backend running locally
+(`AUTH_DISABLED=true` in `.env`):
+
+```bash
+python scripts/run_tagging.py hydra_sample_300.csv configs/hydra_mentions.json --max-rows 20  # trial
+python scripts/run_tagging.py hydra_sample_300.csv configs/hydra_mentions.json                # full run
+```
+
+The result is written next to the input as `<name>_tagged.csv`. To use the
+hosted backend instead, add `--backend https://self-service-toolkit.onrender.com
+--token <your Supabase access token>`.
 
 ---
 

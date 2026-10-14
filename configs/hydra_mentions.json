@@ -1,0 +1,12 @@
+{
+  "_about": "Cluster field for the Hydra brand-mention sample: one Claude call per row fills context, summary and status. Equivalent to one cluster card in Step 2 of the UI (names 'context, summary, status', mode Default, reads from cleaned_text + original_title).",
+  "fields": [
+    {
+      "names": ["context", "summary", "status"],
+      "reads_from": ["cleaned_text", "original_title"],
+      "is_cluster": true,
+      "mode": "default",
+      "prompt": "Analyse how \"Hydra\" is used in the text and title. Return a JSON object with:\n\n- \"context\": short, specific description of what Hydra refers to or represents (2–6 words).\n- \"summary\": concise factual description of how Hydra is discussed (maximum 20 words).\n- \"status\": one of:\n  - \"substantive\": Hydra is actively discussed, described, evaluated or promoted.\n  - \"incidental\": Hydra is only mentioned in passing or listed.\n  - \"unclear\": insufficient context to determine its meaning.\n\nIdentify meanings from context, not assumptions. Distinguish different uses of Hydra. Return only the JSON object.\nFor \"status\", answer \"unclear\" rather than \"unsure\" when context is insufficient."
+    }
+  ]
+}
