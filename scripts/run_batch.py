@@ -73,13 +73,14 @@ THINKING_OFF_OK = {"claude-sonnet-5", "claude-haiku-5-5", "claude-opus-5", "clau
 Plan = List[Tuple[Dict[str, str], List[Tuple[str, List[str]]]]]
 
 
-def plan_requests(df: pd.DataFrame, fields: List[Dict[str, Any]], base_prompt: str
+def plan_requests(df: pd.DataFrame, fields: List[Dict[str, Any]], base_prompt: str,
+                  trim: Optional[Dict[str, Any]] = None,
                   ) -> Tuple[Plan, Dict[str, Tuple[str, List[str]]]]:
     """Per-row call plan, plus the distinct requests keyed by prompt hash."""
     rows: Plan = []
     unique: Dict[str, Tuple[str, List[str]]] = {}
     for _, row in df.iterrows():
-        known, calls = main._plan_row_calls(fields, base_prompt, row)
+        known, calls = main._plan_row_calls(fields, base_prompt, row, trim)
         keyed = []
         for prompt, names in calls:
             key = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
@@ -105,18 +106,20 @@ def request_params(prompt: str, field_names: List[str], model: str) -> Dict[str,
 
 
 def estimate(client, unique: Dict[str, Tuple[str, List[str]]], model: str, n_rows: int) -> None:
-    sample = random.Random(0).sample(sorted(unique), min(20, len(unique)))
-    counts = [
+    """Token count of the whole job, from exact counts on a sample scaled by
+    character length (post lengths vary too much to average a small sample)."""
+    sample = random.Random(0).sample(sorted(unique), min(50, len(unique)))
+    counted = sum(
         client.messages.count_tokens(
             model=model, messages=[{"role": "user", "content": unique[k][0]}]
         ).input_tokens
         for k in sample
-    ]
-    avg_in = sum(counts) / len(counts)
-    print(f"{n_rows:,} rows -> {len(unique):,} distinct requests "
-          f"(~{avg_in:,.0f} input tokens each, measured on {len(counts)})")
-    total_in = avg_in * len(unique)
+    )
+    tokens_per_char = counted / sum(len(unique[k][0]) for k in sample)
+    total_in = tokens_per_char * sum(len(p) for p, _ in unique.values())
     total_out = EST_OUTPUT_TOKENS * len(unique)
+    print(f"{n_rows:,} rows -> {len(unique):,} distinct requests "
+          f"(~{total_in / len(unique):,.0f} input tokens each)")
     print(f"Estimated tokens: {total_in / 1e6:,.1f}M in, {total_out / 1e6:,.1f}M out")
     for m, (pin, pout) in PRICES.items():
         cost = (total_in * pin + total_out * pout) / 1e6 / 2
@@ -145,10 +148,11 @@ def _account_problem(message: str, error_type: str = "") -> bool:
 def run(df: pd.DataFrame, fields: List[Dict[str, Any]], base_prompt: str, client,
         model: str, state_path: Path, poll_seconds: float = 60, fresh: bool = False,
         budget: Optional[float] = None, parallel: int = PARALLEL, batch_size: int = BATCH_SIZE,
+        trim: Optional[Dict[str, Any]] = None,
         ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Run (or resume) the job. Returns the tagged frame and a usage summary;
     usage["stopped"] holds the reason when the run ended before finishing."""
-    rows, unique = plan_requests(df, fields, base_prompt)
+    rows, unique = plan_requests(df, fields, base_prompt, trim)
     fp = fingerprint(unique, model)
     if budget is not None and model not in PRICES:
         sys.exit(f"No price on file for {model}, so --budget can't be enforced.")
@@ -304,6 +308,8 @@ def main_cli() -> None:
     ap.add_argument("--budget", type=float, help="stop before total spend could pass this many US dollars")
     ap.add_argument("--parallel", type=int, default=PARALLEL, help=f"batches in flight at once (default {PARALLEL})")
     ap.add_argument("--batch-size", type=int, default=BATCH_SIZE, help=f"requests per batch (default {BATCH_SIZE:,})")
+    ap.add_argument("--trim-chars", type=int,
+                    help="override the config's trim size (characters kept either side of each match); 0 = no trimming")
     args = ap.parse_args()
 
     if not main.ANTHROPIC_API_KEY:
@@ -318,11 +324,21 @@ def main_cli() -> None:
     if missing:
         sys.exit(f"Config reads from columns not in the CSV: {', '.join(sorted(missing))}")
     base_prompt = config.get("base_prompt") or main.BASE_PROMPT
+    trim = config.get("trim")
+    if args.trim_chars is not None:
+        trim = dict(trim, chars=args.trim_chars) if trim and args.trim_chars > 0 else None
+        if args.trim_chars > 0 and not config.get("trim"):
+            sys.exit("--trim-chars needs a \"trim\" section in the config (columns + pattern).")
+    if trim:
+        trimmed = sum(1 for col in trim["columns"] if col in df.columns
+                      for t in df[col] if main._trim_text(t, trim["pattern"], int(trim.get("chars", 500))) != t)
+        print(f"Trimming long texts to ±{trim.get('chars', 500)} characters around "
+              f"\"{trim['pattern']}\": {trimmed:,} of {len(df):,} rows shortened")
 
     client = anthropic.Anthropic(api_key=main.ANTHROPIC_API_KEY, max_retries=5)
 
     if args.estimate:
-        _, unique = plan_requests(df, fields, base_prompt)
+        _, unique = plan_requests(df, fields, base_prompt, trim)
         estimate(client, unique, args.model, len(df))
         return
 
@@ -330,7 +346,8 @@ def main_cli() -> None:
     state_path = out_path.with_name(out_path.name + ".batch.json")
     try:
         out, usage = run(df, fields, base_prompt, client, args.model, state_path, fresh=args.fresh,
-                         budget=args.budget, parallel=args.parallel, batch_size=args.batch_size)
+                         budget=args.budget, parallel=args.parallel, batch_size=args.batch_size,
+                         trim=trim)
     except KeyboardInterrupt:
         sys.exit(f"\nStopped. Sent batches keep running at Anthropic; re-run the same command "
                  f"to collect them and send the rest (progress is in {state_path.name}).")

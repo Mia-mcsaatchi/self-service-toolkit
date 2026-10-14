@@ -65,6 +65,7 @@ self-service-toolkit/
 ├── .env.example          # Environment variable template
 ├── scripts/run_tagging.py # Run a saved field config over a CSV via the backend
 ├── scripts/run_batch.py  # Same, via Claude's Batch API — for very large files
+├── scripts/compare_runs.py # Compare two tagged outputs (e.g. full vs trimmed text)
 ├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)
@@ -144,6 +145,11 @@ python scripts/run_batch.py big.csv configs/hydra_mentions.json                 
 
 Add `--model claude-haiku-5-5` to try a cheaper model (check its answers on a
 sample first).
+
+Long posts can be trimmed to cut cost: a `"trim"` section in the config keeps
+each post's opening plus N characters either side of every match of a term
+(with a note telling the model how much was cut). Try sizes on a sample with
+`--trim-chars`, then compare runs with `scripts/compare_runs.py`.
 
 For long runs: keep data in `data/` (git-ignored), set a spending cap with
 `--budget <dollars>`, and on a Mac prefix the command with `caffeinate -i` so

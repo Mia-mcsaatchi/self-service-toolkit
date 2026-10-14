@@ -259,9 +259,15 @@ class Field(BaseModel):
     mode: str = "default"
     branches: List[Branch] = []
 
+class TrimConfig(BaseModel):
+    columns: List[str]
+    pattern: str            # regex for the term being analysed, e.g. "hydra"
+    chars: int = 500        # context kept either side of each match
+
 class FieldConfig(BaseModel):
     base_prompt: str = BASE_PROMPT
     fields: List[Field]
+    trim: Optional[TrimConfig] = None
 
 class ProcessRequest(BaseModel):
     max_rows: int = 0
@@ -722,8 +728,61 @@ def _resolve_prompt(field: Dict[str, Any], row: pd.Series) -> Optional[str]:
 # Pipeline
 # ---------------------------------------------------------------------------
 
+def _trim_text(text: str, pattern: str, chars: int) -> str:
+    """Shorten a long post to what matters for one search term.
+
+    Keeps the opening (what the post is about) plus `chars` characters either
+    side of every match, cut at word boundaries. A note up front says how much
+    was kept and how often the term appears, so the model can still judge how
+    central the term is to the full post. Short texts are returned unchanged.
+    """
+    if chars <= 0 or len(text) <= 3 * chars:
+        return text
+    matches = list(re.finditer(pattern, text, re.IGNORECASE))
+    spans = [(0, chars)] + [(m.start() - chars, m.end() + chars) for m in matches]
+
+    def snap_start(i: int) -> int:
+        if i <= 0:
+            return 0
+        j = text.rfind(" ", max(0, i - 40), i)
+        return j + 1 if j != -1 else i
+
+    def snap_end(i: int) -> int:
+        if i >= len(text):
+            return len(text)
+        j = text.find(" ", i, i + 40)
+        return j if j != -1 else i
+
+    merged: List[List[int]] = []
+    for a, b in sorted((snap_start(a), snap_end(b)) for a, b in spans):
+        if merged and a <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+
+    parts = [text[a:b].strip() for a, b in merged]
+    body = " […] ".join(parts) + (" […]" if merged[-1][1] < len(text) else "")
+    kept = sum(b - a for a, b in merged)
+    if kept >= len(text) * 0.9:
+        return text
+    note = (f"[Shortened: {kept:,} of {len(text):,} characters kept — the opening plus the text "
+            f"around each of the {len(matches)} match(es) for \"{pattern}\" in the full post] ")
+    return note + body
+
+
+def _apply_trim(row: pd.Series, trim: Optional[Dict[str, Any]]) -> pd.Series:
+    if not trim:
+        return row
+    row = row.copy()
+    for col in trim.get("columns") or []:
+        if col in row.index and isinstance(row[col], str):
+            row[col] = _trim_text(row[col], trim["pattern"], int(trim.get("chars", 500)))
+    return row
+
+
 def _plan_row_calls(
     fields: List[Dict[str, Any]], base_prompt: str, row: pd.Series,
+    trim: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, str], List[Tuple[str, List[str]]]]:
     """Work out the Claude calls one row needs.
 
@@ -731,8 +790,10 @@ def _plan_row_calls(
     share one call. Returns the values already known ("n/a" for conditional
     fields with no matching branch) and a list of (built prompt, field names).
     Shared by the live pipeline and scripts/run_batch.py so both send the same
-    prompts.
+    prompts. `trim` shortens long source texts (see _trim_text) before the
+    prompt is built; conditions are still evaluated on the original row.
     """
+    prompt_row = _apply_trim(row, trim)
     known: Dict[str, str] = {}
     groups: Dict[str, Dict[str, Any]] = {}
     for f in fields:
@@ -758,7 +819,7 @@ def _plan_row_calls(
             {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
             for fn in group["field_names"]
         ]
-        calls.append((_build_row_prompt(base_prompt, group_fields, row), group["field_names"]))
+        calls.append((_build_row_prompt(base_prompt, group_fields, prompt_row), group["field_names"]))
     return known, calls
 
 
@@ -783,6 +844,7 @@ async def _run_pipeline(
 
     n = min(max_rows, len(df)) if max_rows > 0 else len(df)
     base_prompt = config.get("base_prompt", BASE_PROMPT)
+    trim = config.get("trim")
 
     semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -814,7 +876,7 @@ async def _run_pipeline(
         return parsed
 
     async def process_row(i: int) -> Dict[str, str]:
-        results, calls = _plan_row_calls(fields, base_prompt, df.iloc[i])
+        results, calls = _plan_row_calls(fields, base_prompt, df.iloc[i], trim)
         for built_prompt, field_names in calls:
             parsed = await tag(built_prompt, field_names)
             for fn in field_names:

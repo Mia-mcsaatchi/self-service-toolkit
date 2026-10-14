@@ -117,6 +117,8 @@ def main() -> None:
     cfg_body: Dict[str, Any] = {"fields": fields}
     if config.get("base_prompt"):
         cfg_body["base_prompt"] = config["base_prompt"]
+    if config.get("trim"):
+        cfg_body["trim"] = config["trim"]
     api.json("POST", "/api/upload-config", cfg_body)
     print(f"Config saved: {', '.join(f['name'] for f in fields)}")
 
