@@ -258,7 +258,7 @@ def test_trim_applies_to_prompt_but_not_to_conditions_or_output(tmp_path):
 
 def test_estimate_scales_by_length(capsys):
     unique = {"a": ("x" * 100, ["status"]), "b": ("x" * 900, ["status"])}
-    counter = SimpleNamespace(count_tokens=lambda model, messages: SimpleNamespace(
+    counter = SimpleNamespace(count_tokens=lambda model, messages, output_config, **kw: SimpleNamespace(
         input_tokens=len(messages[0]["content"]) // 4))
     run_batch.estimate(SimpleNamespace(messages=counter), unique, "claude-sonnet-5", 2)
     assert "~125 input tokens each" in capsys.readouterr().out   # (100+900)/4/2

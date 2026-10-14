@@ -109,12 +109,14 @@ def estimate(client, unique: Dict[str, Tuple[str, List[str]]], model: str, n_row
     """Token count of the whole job, from exact counts on a sample scaled by
     character length (post lengths vary too much to average a small sample)."""
     sample = random.Random(0).sample(sorted(unique), min(50, len(unique)))
-    counted = sum(
-        client.messages.count_tokens(
-            model=model, messages=[{"role": "user", "content": unique[k][0]}]
-        ).input_tokens
-        for k in sample
-    )
+    def count(k: str) -> int:
+        # Count the request exactly as it will be sent: the JSON output format
+        # adds ~250 input tokens per request that a bare prompt count misses.
+        params = request_params(*unique[k], model)
+        params.pop("max_tokens")
+        return client.messages.count_tokens(**params).input_tokens
+
+    counted = sum(count(k) for k in sample)
     tokens_per_char = counted / sum(len(unique[k][0]) for k in sample)
     total_in = tokens_per_char * sum(len(p) for p, _ in unique.values())
     total_out = EST_OUTPUT_TOKENS * len(unique)
