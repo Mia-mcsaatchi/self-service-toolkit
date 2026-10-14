@@ -96,12 +96,16 @@ def test_duplicate_rows_cost_one_call_across_chunks(monkeypatch):
 class FakeBatches:
     def __init__(self, fail_first=()):
         self.batches = {}
-        self.fail_first = set(fail_first)  # custom_ids that error on first submission
+        self.broke = set()                  # batches sent while out of credit
+        self.fail_first = set(fail_first)   # custom_ids that error once (server hiccup)
+        self.out_of_credit = False
         self.submitted = []
 
     def create(self, requests):
         bid = f"msgbatch_{len(self.batches)}"
         self.batches[bid] = requests
+        if self.out_of_credit:
+            self.broke.add(bid)
         self.submitted.append([r["custom_id"] for r in requests])
         return SimpleNamespace(id=bid)
 
@@ -110,12 +114,20 @@ class FakeBatches:
         counts = SimpleNamespace(succeeded=n, errored=0, expired=0, canceled=0, processing=0)
         return SimpleNamespace(id=bid, processing_status="ended", request_counts=counts)
 
+    @staticmethod
+    def _error(cid, etype, message):
+        err = SimpleNamespace(error=SimpleNamespace(type=etype, message=message))
+        return SimpleNamespace(custom_id=cid, result=SimpleNamespace(type="errored", error=err))
+
     def results(self, bid):
         for req in self.batches[bid]:
             cid = req["custom_id"]
+            if bid in self.broke:
+                yield self._error(cid, "billing_error", "Your credit balance is too low.")
+                continue
             if cid in self.fail_first:
                 self.fail_first.discard(cid)
-                yield SimpleNamespace(custom_id=cid, result=SimpleNamespace(type="errored"))
+                yield self._error(cid, "api_error", "Internal server error")
                 continue
             prompt = req["params"]["messages"][0]["content"]
             msg = SimpleNamespace(
@@ -162,3 +174,48 @@ def test_batch_runner_resumes_without_resubmitting(tmp_path):
 
     with pytest.raises(SystemExit):  # a different model must not reuse that state
         run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-haiku-5-5", state, poll_seconds=0)
+
+
+def test_out_of_credit_stops_then_resumes_after_top_up(tmp_path):
+    df = pd.DataFrame(ROWS)
+    state = tmp_path / "state.json"
+    batches = FakeBatches()
+    batches.out_of_credit = True
+    out, usage = run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5",
+                               state, poll_seconds=0, parallel=1, batch_size=1)
+    assert "credit" in usage["stopped"]
+    assert len(batches.submitted) == 1          # stopped after one small batch, not all of them
+    assert set(out["status"]) == {"pending"}
+
+    batches.out_of_credit = False               # topped up
+    out, usage = run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5",
+                               state, poll_seconds=0, parallel=1, batch_size=1)
+    assert usage["stopped"] is None
+    assert list(out["status"]) == ["status-for-torrent", "status-for-myth", "status-for-torrent"]
+
+
+def test_budget_blocks_sending_and_marks_pending(tmp_path):
+    df = pd.DataFrame(ROWS)
+    batches = FakeBatches()
+    out, usage = run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5",
+                               tmp_path / "state.json", poll_seconds=0, budget=0.000001)
+    assert batches.submitted == []
+    assert "budget" in usage["stopped"]
+    assert set(out["context"]) == {"pending"}
+
+    out, usage = run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5",
+                               tmp_path / "state.json", poll_seconds=0, budget=5)
+    assert usage["stopped"] is None and "pending" not in set(out["context"])
+
+
+def test_old_state_file_format_still_resumes(tmp_path):
+    df = pd.DataFrame(ROWS)
+    state = tmp_path / "state.json"
+    batches = FakeBatches()
+    run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5", state, poll_seconds=0)
+    saved = json.loads(state.read_text())
+    saved["batches"] = [b["id"] for b in saved["batches"]]   # the earlier bare-id format
+    state.write_text(json.dumps(saved))
+    out, _ = run_batch.run(df, CLUSTER_FIELDS, "Base.", _fake_client(batches), "claude-sonnet-5", state, poll_seconds=0)
+    assert len(batches.submitted) == 1
+    assert "pending" not in set(out["status"])

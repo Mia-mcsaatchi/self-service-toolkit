@@ -145,6 +145,13 @@ python scripts/run_batch.py big.csv configs/hydra_mentions.json                 
 Add `--model claude-haiku-5-5` to try a cheaper model (check its answers on a
 sample first).
 
+For long runs: keep data in `data/` (git-ignored), set a spending cap with
+`--budget <dollars>`, and on a Mac prefix the command with `caffeinate -i` so
+the laptop doesn't sleep. Work is sent a few batches at a time, so a credit or
+permission problem stops the run after one small batch; finished rows are
+written straight away (unfinished cells say `pending`) and re-running the same
+command continues from there.
+
 ---
 
 ## Testing
