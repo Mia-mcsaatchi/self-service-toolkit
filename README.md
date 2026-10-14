@@ -63,7 +63,8 @@ self-service-toolkit/
 ├── requirements-dev.txt  # Test dependencies (pytest, httpx)
 ├── Dockerfile            # Builds/runs the backend on any Docker host
 ├── .env.example          # Environment variable template
-├── scripts/run_tagging.py # Run a saved field config over a CSV from the command line
+├── scripts/run_tagging.py # Run a saved field config over a CSV via the backend
+├── scripts/run_batch.py  # Same, via Claude's Batch API — for very large files
 ├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)
@@ -126,6 +127,23 @@ python scripts/run_tagging.py hydra_sample_300.csv configs/hydra_mentions.json  
 The result is written next to the input as `<name>_tagged.csv`. To use the
 hosted backend instead, add `--backend https://self-service-toolkit.onrender.com
 --token <your Supabase access token>`.
+
+### Large files: the Batch API runner
+
+For tens of thousands of rows, use `scripts/run_batch.py` instead. It sends the
+same prompts straight to Claude's Message Batches API: half the price, no
+timeouts, identical rows sent once, and resumable (re-run the same command if
+it's stopped). It needs `ANTHROPIC_API_KEY` in `.env`; the backend doesn't have
+to be running.
+
+```bash
+python scripts/run_batch.py big.csv configs/hydra_mentions.json --estimate         # cost only, sends nothing
+python scripts/run_batch.py big.csv configs/hydra_mentions.json --max-rows 300     # trial
+python scripts/run_batch.py big.csv configs/hydra_mentions.json                    # full run
+```
+
+Add `--model claude-haiku-5-5` to try a cheaper model (check its answers on a
+sample first).
 
 ---
 
