@@ -66,6 +66,7 @@ self-service-toolkit/
 ├── scripts/run_tagging.py # Run a saved field config over a CSV via the backend
 ├── scripts/run_batch.py  # Same, via Claude's Batch API — for very large files
 ├── scripts/compare_runs.py # Compare two tagged outputs (e.g. full vs trimmed text)
+├── scripts/map_labels.py  # Map free-text labels onto a category list; rebuild the breakdown
 ├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)
@@ -150,6 +151,11 @@ Long posts can be trimmed to cut cost: a `"trim"` section in the config keeps
 each post's opening plus N characters either side of every match of a term
 (with a note telling the model how much was cut). Try sizes on a sample with
 `--trim-chars`, then compare runs with `scripts/compare_runs.py`.
+
+To group the free-text `context` labels into a fixed category list, run
+`scripts/map_labels.py <tagged.csv> configs/hydra_taxonomy.json`. It maps each
+distinct label (100 per request, ~$5 for 30k labels), proposes new associations
+for review, and writes a categorised CSV plus a breakdown workbook.
 
 For long runs: keep data in `data/` (git-ignored), set a spending cap with
 `--budget <dollars>`, and on a Mac prefix the command with `caffeinate -i` so
