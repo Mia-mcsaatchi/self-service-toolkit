@@ -47,3 +47,17 @@ def test_workbook_sheets_connotation_reach_and_sentiment(tmp_path):
     assert broad.loc["Marvel", "unique texts"] == 10
     assert round(broad.loc["Marvel", "net sentiment (pos − neg)"], 3) == round(1 / 3 - 2 / 3, 3)
     assert len(pd.read_excel(x, "Accuracy check")) == 20
+
+
+def test_v2_sentiment_separates_explicit_and_symbolic(tmp_path):
+    conn = json.loads((ROOT / "configs/hydra_connotation.json").read_text())
+    df = _frame()
+    sent = df[df["broad_category"] == "Marvel"].head(4).assign(
+        hydra_sentiment=["positive", "negative", "negative", "neutral"],
+        sentiment_basis=["explicit", "symbolic", "explicit", "none"],
+        confidence=["high", "medium", "low", "high"])
+    aw.build(df, conn, sent, tmp_path / "a.xlsx")
+    row = pd.read_excel(tmp_path / "a.xlsx", "By broad category").set_index("broad_category").loc["Marvel"]
+    assert row["% explicit evaluation"] == 0.5 and row["% symbolic"] == 0.25
+    assert row["net sentiment, explicit only (share of sample)"] == 0      # +1 explicit, -1 explicit
+    assert row["% low confidence"] == 0.25

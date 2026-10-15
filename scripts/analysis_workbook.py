@@ -61,6 +61,15 @@ def sentiment_cols(g: Optional[pd.DataFrame]) -> Dict:
     out = {"sentiment sample n": len(g)}
     out.update({f"% {s}": share.get(s, 0.0) for s in SENTIMENTS})
     out["net sentiment (pos − neg)"] = share.get("positive", 0.0) - share.get("negative", 0.0)
+    if "sentiment_basis" in g.columns:   # v2 prompt: keep explicit and symbolic sentiment apart
+        basis = g["sentiment_basis"].str.lower()
+        explicit = g[basis == "explicit"]["hydra_sentiment"].str.lower()
+        out["% explicit evaluation"] = (basis == "explicit").mean()
+        out["% symbolic"] = (basis == "symbolic").mean()
+        out["net sentiment, explicit only (share of sample)"] = (
+            ((explicit == "positive").sum() - (explicit == "negative").sum()) / len(g))
+    if "confidence" in g.columns:
+        out["% low confidence"] = (g["confidence"].str.lower() == "low").mean()
     return out
 
 

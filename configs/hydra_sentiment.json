@@ -1,9 +1,11 @@
 {
-  "_about": "Hydra-specific sentiment for a stratified sample of categorised mentions (see scripts/stratified_sample.py). Reads the post plus the context label so the model rates sentiment towards the thing Hydra refers to, not the whole post as Brandwatch does.",
+  "_about": "Hydra-specific sentiment for a stratified sample of categorised mentions (see scripts/stratified_sample.py). Reads the post plus the context label so the model rates sentiment towards the thing Hydra refers to, not the whole post as Brandwatch does. v2 rules: no sentiment inferred from engagement alone; praise/criticism must target the Hydra thing itself; symbolic sentiment allowed but flagged via sentiment_basis, with a confidence field.",
   "fields": [
     {
       "names": [
         "hydra_sentiment",
+        "sentiment_basis",
+        "confidence",
         "sentiment_reason"
       ],
       "reads_from": [
@@ -13,7 +15,7 @@
       ],
       "is_cluster": true,
       "mode": "default",
-      "prompt": "The \"context\" field says what \"Hydra\" refers to in this post (a product, organisation, place, game, person, idea, etc.). Judge the sentiment the author expresses towards THAT thing — not the overall tone of the post, and not the topic around it.\n\n- \"hydra_sentiment\": one of:\n  - \"positive\": the author likes, praises, recommends or is enthusiastic about it.\n  - \"negative\": the author criticises, mocks, fears or condemns it.\n  - \"mixed\": clearly both.\n  - \"neutral\": it is only named, listed or reported on without the author's own evaluation (news reporting is usually neutral).\n- \"sentiment_reason\": the evidence in at most 12 words, in English.\n\nA villain or crime being described is not negative sentiment unless the author expresses a judgement. Never answer \"unsure\"; use \"neutral\" when there is no evaluation."
+      "prompt": "The \"context\" field says what \"Hydra\" refers to in this post (a product, organisation, place, game, person, idea, etc.). Rate the sentiment the author expresses towards THAT Hydra thing — not the overall tone of the post, and not the wider topic.\n\nRules:\n1. Do not infer sentiment from engagement alone. Playing a game, using or buying a product, visiting or mentioning a place, or reporting news about it is neutral unless the author also evaluates it.\n2. Attribute praise or criticism to Hydra only when it is clearly aimed at the Hydra thing itself. Praise or criticism of a wider film, company, game, brand or technology ecosystem is not sentiment towards its Hydra component.\n3. Symbolic sentiment is allowed when Hydra itself is used for its connotation — e.g. 'a hydra of corruption' or 'Hail Hydra' as a villain reference casts Hydra negatively. Mark these as symbolic, not explicit.\n\nReturn:\n- \"hydra_sentiment\": \"positive\", \"negative\", \"mixed\" or \"neutral\" (neutral whenever there is no evaluation).\n- \"sentiment_basis\": \"explicit\" (the author directly evaluates the Hydra thing), \"symbolic\" (sentiment comes from Hydra used as a positive or negative symbol or metaphor), or \"none\" (neutral, no evaluation).\n- \"confidence\": \"high\", \"medium\" or \"low\" — how clearly the text supports the rating.\n- \"sentiment_reason\": the evidence in at most 12 words, in English.\n\nNever answer \"unsure\"; use \"neutral\" with basis \"none\" when there is no evaluation."
     }
   ]
 }
