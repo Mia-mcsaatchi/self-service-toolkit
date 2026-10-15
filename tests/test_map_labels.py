@@ -93,3 +93,28 @@ def test_breakdown_counts_exclusions_unresolved_and_new(tmp_path):
     cells = [r for r in wb["HYDRA Associations"].iter_rows(values_only=True)]
     assert ["Marvel", "Subtotal", 3] == list(cells[7][:3])
     assert any(r[1] == "Roleplay character name (new)" for r in cells)
+
+
+def test_finalise_rules_merge_move_and_fold_small_tags():
+    import finalise_breakdown
+    cat = pd.DataFrame({
+        "context": ["character name in roleplay"] * 3 + ["roleplay character name"] * 2
+                   + ["Stargate Hydra bridge"] * 2 + ["LayerZero Stargate Hydra"] + ["tiny thing"],
+        "broad_category": ["TV and stage"] * 3 + ["Unresolved"] * 2 + ["Crypto"] * 3 + ["Crypto"],
+        "specific_association": ["Starlight Express character"] * 3 + ["Unspecified"] * 2
+                                + ["Stargate Hydra bridge"] * 2 + ["LayerZero Stargate Hydra bridge", "Tiny"],
+        "new_association": ["True"] * 3 + ["False"] * 2 + ["True"] * 4,
+    })
+    cfg = {"min_mentions": 2, "rules": [
+        {"from": {"broad": "TV and stage", "specific": "Starlight Express character"},
+         "to": {"broad": "Fiction", "specific": "Roleplay character", "new": True}},
+        {"from": {"broad": "Unresolved", "label_regex": "role-?play"},
+         "to": {"broad": "Fiction", "specific": "Roleplay character", "new": True}},
+        {"from": {"specific": "Stargate Hydra bridge"},
+         "to": {"broad": "Crypto", "specific": "LayerZero Stargate Hydra bridge", "new": True}},
+    ]}
+    out = finalise_breakdown.apply_rules(cat, cfg)
+    assert (out["specific_association"] == "Roleplay character").sum() == 5
+    assert (out["specific_association"] == "LayerZero Stargate Hydra bridge").sum() == 3
+    assert out.loc[8, "specific_association"] == "Other (smaller associations)"   # 1 < min_mentions
+    assert not out.loc[8, "new_association"]
