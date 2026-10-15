@@ -61,3 +61,14 @@ def test_v2_sentiment_separates_explicit_and_symbolic(tmp_path):
     assert row["% explicit evaluation"] == 0.5 and row["% symbolic"] == 0.25
     assert row["net sentiment, explicit only (share of sample)"] == 0      # +1 explicit, -1 explicit
     assert row["% low confidence"] == 0.25
+
+
+def test_merge_columns_back_onto_full_set():
+    import merge_columns
+    base = pd.DataFrame({"mention_id": ["a", "b", "c"], "hydra_sentiment": ["", "", ""], "x": ["1", "2", "3"]})
+    extra = pd.DataFrame({"mention_id": ["c", "a", "a"], "hydra_sentiment": ["negative", "positive", "dup"],
+                          "confidence": ["high", "low", "x"]})
+    out = merge_columns.merge_columns(base, extra, "mention_id", ["hydra_sentiment", "confidence"], "not rated")
+    assert list(out["mention_id"]) == ["a", "b", "c"] and list(out["x"]) == ["1", "2", "3"]
+    assert list(out["hydra_sentiment"]) == ["positive", "not rated", "negative"]
+    assert list(out["confidence"]) == ["low", "not rated", "high"]

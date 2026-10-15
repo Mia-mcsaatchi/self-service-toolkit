@@ -70,6 +70,7 @@ self-service-toolkit/
 ├── scripts/finalise_breakdown.py # Apply reviewed merge rules; write the final breakdown
 ├── scripts/stratified_sample.py  # Up to N random mentions per category (for sampled measures)
 ├── scripts/analysis_workbook.py  # Report tables: reach, connotation, sentiment, markets, trend
+├── scripts/merge_columns.py      # Copy tagged columns from a subset back onto the full dataset
 ├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)
