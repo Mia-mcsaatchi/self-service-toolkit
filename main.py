@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import aiohttp
 import anthropic
@@ -170,6 +171,7 @@ def _new_state() -> Dict[str, Any]:
         "embedded_texts": None,   # List[str] — the text we embedded (one per row)
         "column_map": None,       # Dict describing which columns are categorical/datetime/text/numerical
         "api_key": None,          # optional per-user OpenAI key — embeddings only
+        "tag_cache": {},          # built prompt hash -> parsed answer, see _run_pipeline
     }
 
 
@@ -257,9 +259,15 @@ class Field(BaseModel):
     mode: str = "default"
     branches: List[Branch] = []
 
+class TrimConfig(BaseModel):
+    columns: List[str]
+    pattern: str            # regex for the term being analysed, e.g. "hydra"
+    chars: int = 500        # context kept either side of each match
+
 class FieldConfig(BaseModel):
     base_prompt: str = BASE_PROMPT
     fields: List[Field]
+    trim: Optional[TrimConfig] = None
 
 class ProcessRequest(BaseModel):
     max_rows: int = 0
@@ -475,24 +483,31 @@ def _build_row_prompt(base_prompt: str, fields: List[Dict], row: pd.Series) -> s
         if col in row.index
     ) or "(no source columns)"
 
-    instruction_lines = []
-    for f in fields:
-        name = (f.get("name") or "").strip()
-        if not name:
-            continue
-        prompt_text = (f.get("prompt") or "").strip()
-        deps = [c for c in (f.get("reads_from") or []) if c in field_names and c != name]
-        dep_note = f" (based on {', '.join(deps)})" if deps else ""
-        instruction_lines.append(f'  "{name}": {prompt_text}{dep_note}')
+    named = [f for f in fields if (f.get("name") or "").strip()]
+    prompts = {(f.get("prompt") or "").strip() for f in named}
 
-    keys = ", ".join(f'"{f["name"]}"' for f in fields if (f.get("name") or "").strip())
+    if len(named) > 1 and len(prompts) == 1:
+        # A cluster: every key shares one prompt that already describes all of
+        # them. Writing it once per key multiplied the input tokens per row.
+        instructions = "Instructions (covering every key):\n" + prompts.pop()
+    else:
+        instruction_lines = []
+        for f in named:
+            name = f["name"].strip()
+            prompt_text = (f.get("prompt") or "").strip()
+            deps = [c for c in (f.get("reads_from") or []) if c in field_names and c != name]
+            dep_note = f" (based on {', '.join(deps)})" if deps else ""
+            instruction_lines.append(f'  "{name}": {prompt_text}{dep_note}')
+        instructions = "Field instructions:\n" + "\n".join(instruction_lines)
+
+    keys = ", ".join(f'"{f["name"].strip()}"' for f in named)
 
     return (
         f"{base_prompt}\n\n"
         f"Row data:\n{context}\n\n"
         f"Return a JSON object with EXACTLY these keys: {{{keys}}}\n"
         f"Fill the fields IN ORDER — later fields may reference earlier ones.\n"
-        f"Field instructions:\n" + "\n".join(instruction_lines) + "\n\n"
+        f"{instructions}\n\n"
         "Rules:\n"
         "  • Each value must be plain text (no nested objects or markdown).\n"
         "  • If a field is ambiguous or missing, use 'unsure'.\n"
@@ -713,11 +728,107 @@ def _resolve_prompt(field: Dict[str, Any], row: pd.Series) -> Optional[str]:
 # Pipeline
 # ---------------------------------------------------------------------------
 
+def _trim_text(text: str, pattern: str, chars: int) -> str:
+    """Shorten a long post to what matters for one search term.
+
+    Keeps the opening (what the post is about) plus `chars` characters either
+    side of every match, cut at word boundaries. A note up front says how much
+    was kept and how often the term appears, so the model can still judge how
+    central the term is to the full post. Short texts are returned unchanged.
+    """
+    if chars <= 0 or len(text) <= 3 * chars:
+        return text
+    matches = list(re.finditer(pattern, text, re.IGNORECASE))
+    spans = [(0, chars)] + [(m.start() - chars, m.end() + chars) for m in matches]
+
+    def snap_start(i: int) -> int:
+        if i <= 0:
+            return 0
+        j = text.rfind(" ", max(0, i - 40), i)
+        return j + 1 if j != -1 else i
+
+    def snap_end(i: int) -> int:
+        if i >= len(text):
+            return len(text)
+        j = text.find(" ", i, i + 40)
+        return j if j != -1 else i
+
+    merged: List[List[int]] = []
+    for a, b in sorted((snap_start(a), snap_end(b)) for a, b in spans):
+        if merged and a <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+
+    parts = [text[a:b].strip() for a, b in merged]
+    body = " […] ".join(parts) + (" […]" if merged[-1][1] < len(text) else "")
+    kept = sum(b - a for a, b in merged)
+    if kept >= len(text) * 0.9:
+        return text
+    note = (f"[Shortened: {kept:,} of {len(text):,} characters kept — the opening plus the text "
+            f"around each of the {len(matches)} match(es) for \"{pattern}\" in the full post] ")
+    return note + body
+
+
+def _apply_trim(row: pd.Series, trim: Optional[Dict[str, Any]]) -> pd.Series:
+    if not trim:
+        return row
+    row = row.copy()
+    for col in trim.get("columns") or []:
+        if col in row.index and isinstance(row[col], str):
+            row[col] = _trim_text(row[col], trim["pattern"], int(trim.get("chars", 500)))
+    return row
+
+
+def _plan_row_calls(
+    fields: List[Dict[str, Any]], base_prompt: str, row: pd.Series,
+    trim: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, str], List[Tuple[str, List[str]]]]:
+    """Work out the Claude calls one row needs.
+
+    Fields that resolve to the same prompt over the same columns (a cluster)
+    share one call. Returns the values already known ("n/a" for conditional
+    fields with no matching branch) and a list of (built prompt, field names).
+    Shared by the live pipeline and scripts/run_batch.py so both send the same
+    prompts. `trim` shortens long source texts (see _trim_text) before the
+    prompt is built; conditions are still evaluated on the original row.
+    """
+    prompt_row = _apply_trim(row, trim)
+    known: Dict[str, str] = {}
+    groups: Dict[str, Dict[str, Any]] = {}
+    for f in fields:
+        fname = (f.get("name") or "").strip()
+        if not fname:
+            continue
+        resolved_prompt = _resolve_prompt(f, row)
+        if resolved_prompt is None:
+            known[fname] = "n/a"
+            continue
+        group_key = resolved_prompt + "|" + ",".join(sorted(f.get("reads_from") or []))
+        if group_key not in groups:
+            groups[group_key] = {
+                "prompt": resolved_prompt,
+                "reads_from": f.get("reads_from") or [],
+                "field_names": [],
+            }
+        groups[group_key]["field_names"].append(fname)
+
+    calls = []
+    for group in groups.values():
+        group_fields = [
+            {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
+            for fn in group["field_names"]
+        ]
+        calls.append((_build_row_prompt(base_prompt, group_fields, prompt_row), group["field_names"]))
+    return known, calls
+
+
 async def _run_pipeline(
     df: pd.DataFrame,
     config: Dict[str, Any],
     max_rows: int,
     max_concurrent: int,
+    cache: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> pd.DataFrame:
     if not ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set on the server.")
@@ -733,52 +844,43 @@ async def _run_pipeline(
 
     n = min(max_rows, len(df)) if max_rows > 0 else len(df)
     base_prompt = config.get("base_prompt", BASE_PROMPT)
+    trim = config.get("trim")
 
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def process_row(i: int) -> Dict[str, str]:
-        row = df.iloc[i]
-        results: Dict[str, str] = {}
+    # Identical rows (syndicated articles, retweets) build identical prompts, so
+    # each distinct prompt is sent once. `cache` outlives the request — the
+    # caller passes the user's, so it also spans chunks and a re-run after a
+    # failure. Only successful answers are kept; {} means "retry next time".
+    cache = {} if cache is None else cache
+    inflight: Dict[str, asyncio.Future] = {}
 
-        call_groups: Dict[str, Dict[str, Any]] = {}
-
-        for f in fields:
-            fname = (f.get("name") or "").strip()
-            if not fname:
-                continue
-
-            resolved_prompt = _resolve_prompt(f, row)
-
-            if resolved_prompt is None:
-                results[fname] = "n/a"
-                continue
-
-            group_key = resolved_prompt + "|" + ",".join(sorted(f.get("reads_from") or []))
-            if group_key not in call_groups:
-                call_groups[group_key] = {
-                    "prompt": resolved_prompt,
-                    "reads_from": f.get("reads_from") or [],
-                    "field_names": [],
-                }
-            call_groups[group_key]["field_names"].append(fname)
-
-        for group in call_groups.values():
-            group_fields = [
-                {"name": fn, "prompt": group["prompt"], "reads_from": group["reads_from"]}
-                for fn in group["field_names"]
-            ]
-            built_prompt = _build_row_prompt(base_prompt, group_fields, row)
-            parsed = await _call_claude(
+    async def tag(built_prompt: str, field_names: List[str]) -> Dict[str, Any]:
+        key = hashlib.sha1(built_prompt.encode("utf-8")).hexdigest()
+        if key in cache:
+            return cache[key]
+        if key not in inflight:
+            inflight[key] = asyncio.ensure_future(_call_claude(
                 semaphore,
                 built_prompt,
-                schema=_tagging_schema(group["field_names"]),
+                schema=_tagging_schema(field_names),
                 model=TAGGING_MODEL,
                 max_tokens=2048,
                 effort="low",
-            )
-            for fn in group["field_names"]:
-                results[fn] = str(parsed.get(fn, "unsure"))
+            ))
+        parsed = await inflight[key]
+        if parsed:
+            if len(cache) >= 200_000:
+                cache.clear()
+            cache[key] = parsed
+        return parsed
 
+    async def process_row(i: int) -> Dict[str, str]:
+        results, calls = _plan_row_calls(fields, base_prompt, df.iloc[i], trim)
+        for built_prompt, field_names in calls:
+            parsed = await tag(built_prompt, field_names)
+            for fn in field_names:
+                results[fn] = str(parsed.get(fn, "unsure"))
         return results
 
     tasks = [process_row(i) for i in range(n)]
@@ -816,7 +918,8 @@ async def process(body: ProcessRequest, user: Dict[str, Any] = Depends(get_curre
     chunk = df.iloc[offset:end].reset_index(drop=True)
 
     try:
-        result = await _run_pipeline(chunk, config, 0, body.max_concurrent)
+        result = await _run_pipeline(chunk, config, 0, body.max_concurrent,
+                                     cache=st.setdefault("tag_cache", {}))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

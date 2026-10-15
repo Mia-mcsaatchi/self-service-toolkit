@@ -1,0 +1,201 @@
+{
+  "_about": "Hydra association taxonomy (broad category -> specific associations), taken from HYDRA_Association_Breakdown.xlsx. Used by scripts/map_labels.py; every broad category also accepts 'Unspecified'.",
+  "categories": {
+    "Beauty and personal-care products": [
+      "KIKO 3D Hydra lip gloss",
+      "L’Oréal Men Expert Hydra Energetic / Energy",
+      "Clarins Hydra-Essentiel",
+      "Chanel Hydra Beauty",
+      "Garnier Ambre Solaire Hydra 24H",
+      "Lancôme Hydra Zen",
+      "Medik8 Hydra B5",
+      "Fenty Skin Hydra Vizor",
+      "Kérastase Gloss Absolu Hydra-Glaze",
+      "Kérastase Genesis Hydra-Fortifiant",
+      "Garnier Hydra Bomb",
+      "L’Oréal Elvital / Elseve Hydra Hyaluronic",
+      "Pixi Hydra LipTreat",
+      "Essence Hydra Kiss lip products",
+      "MZ Skin Hydra Lift",
+      "By Terry Hyaluronic Hydra-Powder",
+      "Chanel Rouge Coco Hydra Gloss",
+      "Dr.Jart+ Vital Hydra Solution",
+      "MUA Hydra Juice lip products",
+      "Pantene Hydra Recharge",
+      "Dior Forever Hydra Nude",
+      "Biotherm Aquasource Hydra Barrier",
+      "Drunk Elephant B-Hydra serum",
+      "Institut Esthederm Adaptasun Hydra Protective",
+      "Decorté Hydra Clarity",
+      "Artdeco Hydra Lip Booster",
+      "Biolage Hydra Source",
+      "Gatineau Collagène Expert Hydra Essence",
+      "Guinot Hydra Peeling",
+      "Nilens Jord Hydra Shield",
+      "Avon Anew Hydra Fusion",
+      "SkinMedica HA5 Hydra Collagen",
+      "Filorga Hydra-Hyal",
+      "NYX Hydra-Honey lip gloss shade",
+      "Deliplus Hydra Hyaluronic conditioner",
+      "KIKO Hydra Shield Skin Tint",
+      "Kay Beauty Hydra Cloud Cushion",
+      "Mádara Hydra Repair serum",
+      "Pixi +Hydra Lip Tint",
+      "Glow Hub Hydration Hero Hydra Gel"
+    ],
+    "Marvel": [
+      "Marvel HYDRA organisation",
+      "Marvel 1943: Rise of Hydra game",
+      "Captain Hydra / Hydra Captain America",
+      "Hail Hydra slogan / meme",
+      "Madame Hydra"
+    ],
+    "Metaphor and symbolism": [
+      "Hydra metaphor: multi-headed / recurring challenge",
+      "Hydra metaphor for Iran / aligned network",
+      "Hydra metaphor for crime / corruption",
+      "Hydra metaphor for bureaucracy",
+      "Hydra metaphor for Russian power / subversion",
+      "Hydra metaphor for antisemitism"
+    ],
+    "Crime and public affairs": [
+      "Hydra Milan mafia investigation / trial",
+      "HYDRAA / Hyderabad disaster-response agency"
+    ],
+    "Places and geography": [
+      "Hydra / Ydra, Greek island",
+      "Hydra district, Algiers",
+      "Hydra street, Zaragoza",
+      "Hydra street, Móstoles"
+    ],
+    "Fiction and entertainment": [
+      "Warhammer 40,000 Alpha Legion / Hydra Dominatus"
+    ],
+    "Cryptocurrency and blockchain": [
+      "Cardano Hydra scaling protocol",
+      "Hydra / HydraChain blockchain",
+      "Cardano Hydra-Vote governance process"
+    ],
+    "Esports": [
+      "HyDra, Call of Duty player"
+    ],
+    "Video games": [
+      "Kirby Air Ride / Air Riders Hydra vehicle",
+      "Diablo Hydra sorcerer skill / build",
+      "League of Legends Hydra items",
+      "ARC Raiders Hydra enemy",
+      "Grand Theft Auto Hydra aircraft",
+      "Counter-Strike AWP Desert Hydra skin",
+      "Warhammer Dark Elves War Hydra",
+      "Old School RuneScape Alchemical Hydra",
+      "Warhammer Vampire Coast Bone Hydra",
+      "Dark Souls Hydra enemy",
+      "Hades Bone Hydra / Lernie"
+    ],
+    "Mythology": [
+      "Mythological Hydra creature / adaptations"
+    ],
+    "Vehicles and vessels": [
+      "Hydra–HM Hospitales racing yacht",
+      "Hydra-Matic automatic transmission",
+      "Harley-Davidson Hydra-Glide",
+      "MF Hydra hydrogen ferry",
+      "R/V Hydra research vessel",
+      "Hydra DK46 racing yacht",
+      "Hyundai Ioniq 5 N nicknamed Hydra",
+      "Hydra-Sports boat brand"
+    ],
+    "Businesses and organisations": [
+      "Hydra Host computing infrastructure company",
+      "Hydra Space satellite company",
+      "Hydra Investimenti",
+      "Hydra Creative agency",
+      "Hydra Capital Partners",
+      "Hydra Group EOOD, Bulgaria",
+      "Hydra Technology & Innovation",
+      "Hydra Energy hydrogen trucking company"
+    ],
+    "People and online identities": [
+      "@iamhydraszn online identity",
+      "@HyDrAnml online identity"
+    ],
+    "Software and computing": [
+      "MPDV HYDRA / HYDRA X manufacturing software",
+      "Hydra GPU / CPU tuning software",
+      "Catapult Hydra VPN protocol",
+      "Hydra game launcher",
+      "USD Hydra rendering framework",
+      "Hydra chess computer",
+      "Hydra Connect software",
+      "Hydra Python configuration framework",
+      "Hydra clusters of coordinated fraudulent accounts",
+      "TietAI Hydra healthcare AI"
+    ],
+    "History and defence": [
+      "Hydra 70 rocket system",
+      "Hydra-class Greek frigate",
+      "Operation Hydra, Peenemünde WWII raid"
+    ],
+    "Beauty services": [
+      "Hydra Estetica, Avigliana salon",
+      "HydraFacial branded treatment"
+    ],
+    "Astronomy": [
+      "Hydra constellation",
+      "Hydra, moon of Pluto",
+      "Hydra galaxy cluster / Abell 1060",
+      "Hydra II dwarf galaxy",
+      "Hydra–Centaurus supercluster"
+    ],
+    "Cybersecurity": [
+      "Hydra darknet marketplace",
+      "THC Hydra password-cracking tool",
+      "Hydra banking malware"
+    ],
+    "Music and audio": [
+      "Crimson Glory — Chasing the Hydra",
+      "Toto — Hydra album / title track",
+      "Orbit Culture — Hydra song",
+      "Hydra-Cast podcast",
+      "Electric Hydra band",
+      "Hydra Head Records",
+      "Within Temptation — Hydra album",
+      "Hydra Z rapper",
+      "Hydra Quartet ensemble"
+    ],
+    "Technology and industrial products": [
+      "Level IT Hydra Bond flooring product",
+      "Wanner Hydra-Cell pumps",
+      "ALL.SPACE Hydra terminals",
+      "Thermo Fisher Helios Hydra microscope"
+    ],
+    "TV and stage": [
+      "Tatort — Hydra episode",
+      "Starlight Express — Hydra character"
+    ],
+    "Publishing and museums": [
+      "Hydra museum / Ecomuseo Terre di Hydra, Terni",
+      "Hydra Comics",
+      "Carla Nyman — Hydra work"
+    ],
+    "Cycling and sport products": [
+      "Industry Nine Hydra bicycle hub",
+      "Salomon ADV Hydra hydration pack / vest family",
+      "RYZE Hydra padel racket"
+    ],
+    "Biology": [
+      "Hydra freshwater cnidarian / polyp"
+    ],
+    "Musical instruments": [
+      "ASM Hydrasynth"
+    ],
+    "Tabletop games": [
+      "D&D False Hydra",
+      "Magic: The Gathering Hydra cards",
+      "Dungeons & Dragons Hydra monster"
+    ],
+    "Word and puzzle uses": [
+      "HYDRA Wordle answer"
+    ]
+  }
+}

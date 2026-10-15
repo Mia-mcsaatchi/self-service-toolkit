@@ -1,0 +1,285 @@
+{
+  "_about": "Clean-up rules applied by scripts/finalise_breakdown.py after map_labels.py. Rules run in order; each matches on any of broad / specific (exact) / label_regex (case-insensitive, on the free-text context label) and moves matching mentions to the 'to' category. Afterwards, new associations with fewer than min_mentions mentions are folded into 'Other (smaller associations)' within their broad category.",
+  "min_mentions": 20,
+  "other_label": "Other (smaller associations)",
+  "rules": [
+    {
+      "note": "Generic roleplay-character labels (misfiled under Starlight Express or unresolved). Checked on the 3,044 posts: 88% mention trains, 65% name Starlight Express characters, 98% Tumblr, 82% from 8 roleplay accounts - so Starlight Express fan roleplay, kept apart from the Starlight Express character tag.",
+      "from": {
+        "broad": "TV and stage",
+        "specific": "Starlight Express character"
+      },
+      "to": {
+        "broad": "TV and stage",
+        "specific": "Starlight Express fan roleplay",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "broad": "Unresolved",
+        "label_regex": "role-?play|character (name|nickname|named|greeted|listening)|^character name|racing train character|character, (oil tanker|freight train)"
+      },
+      "to": {
+        "broad": "TV and stage",
+        "specific": "Starlight Express fan roleplay",
+        "new": true
+      }
+    },
+    {
+      "note": "Usernames / handles left unresolved",
+      "from": {
+        "broad": "Unresolved",
+        "label_regex": "user ?name|twitter user|user named|\\bhandle\\b|name used as greeting"
+      },
+      "to": {
+        "broad": "People and online identities",
+        "specific": "Unspecified"
+      }
+    },
+    {
+      "note": "New tags that duplicate existing ones",
+      "from": {
+        "specific": "League of Legends items"
+      },
+      "to": {
+        "broad": "Video games",
+        "specific": "League of Legends Hydra items"
+      }
+    },
+    {
+      "from": {
+        "specific": "Warhammer Dark Elves War Hydra"
+      },
+      "to": {
+        "broad": "Video games",
+        "specific": "Warhammer Dark Elves War Hydra"
+      }
+    },
+    {
+      "from": {
+        "specific": "Centro Estetico Hydra"
+      },
+      "to": {
+        "broad": "Beauty services",
+        "specific": "Hydra Estetica, Avigliana salon"
+      }
+    },
+    {
+      "from": {
+        "specific": "multi-headed / recurring challenge"
+      },
+      "to": {
+        "broad": "Metaphor and symbolism",
+        "specific": "Hydra metaphor: multi-headed / recurring challenge"
+      }
+    },
+    {
+      "from": {
+        "specific": "Metaphor for bureaucracy"
+      },
+      "to": {
+        "broad": "Metaphor and symbolism",
+        "specific": "Hydra metaphor for bureaucracy"
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra MAX satcom terminal"
+      },
+      "to": {
+        "broad": "Technology and industrial products",
+        "specific": "ALL.SPACE Hydra terminals"
+      }
+    },
+    {
+      "from": {
+        "specific": "Helios Hydra PFIB-SEM microscope"
+      },
+      "to": {
+        "broad": "Technology and industrial products",
+        "specific": "Thermo Fisher Helios Hydra microscope"
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra clusters of coordinated fraudulent accounts"
+      },
+      "to": {
+        "broad": "Software and computing",
+        "specific": "Hydra clusters of coordinated fraudulent accounts"
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra Supreme"
+      },
+      "to": {
+        "broad": "Marvel",
+        "specific": "Captain Hydra / Hydra Captain America"
+      }
+    },
+    {
+      "note": "New tags that are the same thing under two names",
+      "from": {
+        "specific": "Stargate Hydra bridge"
+      },
+      "to": {
+        "broad": "Cryptocurrency and blockchain",
+        "specific": "LayerZero Stargate Hydra bridge",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Thargoid Hydra, Elite Dangerous"
+      },
+      "to": {
+        "broad": "Video games",
+        "specific": "Elite Dangerous Thargoid Hydra",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Neutrogena Hydra Boost line"
+      },
+      "to": {
+        "broad": "Beauty and personal-care products",
+        "specific": "Neutrogena Hydra Boost",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Futurist Hydra Rescue Foundation"
+      },
+      "to": {
+        "broad": "Beauty and personal-care products",
+        "specific": "Estée Lauder Futurist Hydra Rescue",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra Ultra Glow sheet mask"
+      },
+      "to": {
+        "broad": "Beauty and personal-care products",
+        "specific": "Beauty Pie Hydra Ultra Glow Sheet Mask",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "SVR Ampoule Hydra B3 serum"
+      },
+      "to": {
+        "broad": "Beauty and personal-care products",
+        "specific": "SVR Hydra skincare line",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Mustela Hydra Bebe baby lotion"
+      },
+      "to": {
+        "broad": "Beauty and personal-care products",
+        "specific": "Mustela Hydra Bébé",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra Marine Science company"
+      },
+      "to": {
+        "broad": "Businesses and organisations",
+        "specific": "Hydra Marine Sciences",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Verde Hydra car color"
+      },
+      "to": {
+        "broad": "Vehicles and vessels",
+        "specific": "Lamborghini Verde Hydra paint colour",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Lamborghini Urus Verde Hydra paint color"
+      },
+      "to": {
+        "broad": "Vehicles and vessels",
+        "specific": "Lamborghini Verde Hydra paint colour",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Hydra Star alloy wheel"
+      },
+      "to": {
+        "broad": "Vehicles and vessels",
+        "specific": "Irmscher Hydra Star alloy wheel",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "AIROH Hydra System helmet"
+      },
+      "to": {
+        "broad": "Technology and industrial products",
+        "specific": "Airoh Hydra System helmet",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Airoh Hydra System helmet ventilation"
+      },
+      "to": {
+        "broad": "Technology and industrial products",
+        "specific": "Airoh Hydra System helmet",
+        "new": true
+      }
+    },
+    {
+      "note": "New tags under the wrong broad category",
+      "from": {
+        "specific": "Nike Hypervenom Hydra cleats"
+      },
+      "to": {
+        "broad": "Cycling and sport products",
+        "specific": "Nike Hypervenom Hydra football boots",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Oakley Hydra sunglasses"
+      },
+      "to": {
+        "broad": "Cycling and sport products",
+        "specific": "Oakley Hydra sunglasses",
+        "new": true
+      }
+    },
+    {
+      "from": {
+        "specific": "Satchvai Band tour"
+      },
+      "to": {
+        "broad": "Music and audio",
+        "specific": "SatchVai Band tour",
+        "new": true
+      }
+    }
+  ]
+}

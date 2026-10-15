@@ -1,0 +1,26 @@
+{
+  "_about": "Cluster field for the Hydra brand-mention sample: one Claude call per row fills context, summary and status. Equivalent to one cluster card in Step 2 of the UI (names 'context, summary, status', mode Default, reads from cleaned_text + original_title). Trimming is off (chars 0): tested ±500 on 300 posts, it changed ~7% more long-post statuses than run-to-run noise for only ~8% saving. Re-enable with run_batch.py --trim-chars N.",
+  "fields": [
+    {
+      "names": [
+        "context",
+        "summary",
+        "status"
+      ],
+      "reads_from": [
+        "cleaned_text",
+        "original_title"
+      ],
+      "is_cluster": true,
+      "mode": "default",
+      "prompt": "Analyse how \"Hydra\" is used in the text and title. Return a JSON object with:\n\n- \"context\": specific meaning or association of Hydra (2–6 words). Prefer established names when supported.\n- \"summary\": concise factual description of how Hydra is discussed (maximum 20 words).\n- \"status\": one of:\n  - \"substantive\": Hydra is the main subject or meaningfully discussed, evaluated, compared or promoted.\n  - \"incidental\": Hydra is only mentioned in passing, listed or appears in unrelated links.\n  - \"unclear\": insufficient evidence to confidently attribute Hydra to a single, identifiable association or meaning.\n  - \"irrelevant\": no genuine Hydra reference, including unrelated words or text artefacts.\n\nIdentify meanings from evidence, not assumptions. Never invent a specific identity based only on the general topic. If the broader meaning is clear but the exact identity is uncertain, use a broader accurate context rather than guessing.\n\nDistinguish people from products, games and organisations. Treat meaningful Hydra-derived names as valid references.\nFor \"status\", answer \"unclear\" or \"irrelevant\" rather than \"unsure\"."
+    }
+  ],
+  "trim": {
+    "columns": [
+      "cleaned_text"
+    ],
+    "pattern": "hydra",
+    "chars": 0
+  }
+}
