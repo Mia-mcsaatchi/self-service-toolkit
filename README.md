@@ -68,6 +68,8 @@ self-service-toolkit/
 ├── scripts/compare_runs.py # Compare two tagged outputs (e.g. full vs trimmed text)
 ├── scripts/map_labels.py  # Map free-text labels onto a category list; rebuild the breakdown
 ├── scripts/finalise_breakdown.py # Apply reviewed merge rules; write the final breakdown
+├── scripts/stratified_sample.py  # Up to N random mentions per category (for sampled measures)
+├── scripts/analysis_workbook.py  # Report tables: reach, connotation, sentiment, markets, trend
 ├── configs/              # Saved field configs (e.g. hydra_mentions.json)
 ├── tests/                # End-to-end tests (upload → tag → export → auth)
 ├── docs/                 # User guide (served by GitHub Pages)

@@ -1,0 +1,41 @@
+{
+  "_about": "What each association makes the word 'Hydra' signify — positive (desirable: care, hydration, a beautiful place), negative (threat, villainy, crime, weapons, multiplying problems) or neutral (a name with no charge). Rated at association level, not per post. Draft for review: broad categories set the default, 'specific' entries override it. Used by scripts/analysis_workbook.py.",
+  "broad": {
+    "Beauty and personal-care products": ["positive", "skincare / haircare naming built on 'hydration'"],
+    "Beauty services": ["positive", "salons and hydrating treatments"],
+    "Marvel": ["negative", "HYDRA is Marvel's Nazi-rooted terrorist organisation; 'Hail Hydra' signals villainy"],
+    "Metaphor and symbolism": ["negative", "the hydra as a problem that multiplies when attacked"],
+    "Crime and public affairs": ["negative", "organised-crime investigation and trial names"],
+    "Cybersecurity": ["negative", "darknet drug market, banking malware, password cracking"],
+    "History and defence": ["negative", "weapons and military operations"],
+    "Mythology": ["negative", "a many-headed monster"],
+    "Places and geography": ["neutral", "place and street names"],
+    "Fiction and entertainment": ["neutral", "fictional characters and works"],
+    "Cryptocurrency and blockchain": ["neutral", "protocol and token names"],
+    "Esports": ["neutral", "player and team names"],
+    "Video games": ["neutral", "in-game items, enemies and vehicles"],
+    "Vehicles and vessels": ["neutral", "vehicle, boat and part names"],
+    "Businesses and organisations": ["neutral", "company names"],
+    "Software and computing": ["neutral", "software names"],
+    "Music and audio": ["neutral", "artists, albums and songs"],
+    "TV and stage": ["neutral", "episode and character names"],
+    "People and online identities": ["neutral", "nicknames and usernames"],
+    "Technology and industrial products": ["neutral", "equipment names"],
+    "Publishing and museums": ["neutral", "titles and institutions"],
+    "Astronomy": ["neutral", "constellation, moon and galaxy names"],
+    "Cycling and sport products": ["neutral", "sports equipment names"],
+    "Biology": ["neutral", "the freshwater polyp"],
+    "Tabletop games": ["neutral", "game monsters and cards"],
+    "Musical instruments": ["neutral", "instrument names"],
+    "Word and puzzle uses": ["neutral", "word-game answer"]
+  },
+  "specific": {
+    "Hydra / Ydra, Greek island": ["positive", "holiday island"],
+    "HYDRAA / Hyderabad disaster-response agency": ["neutral", "public agency name"],
+    "Hydra clusters of coordinated fraudulent accounts": ["negative", "fraud networks"],
+    "Hydra Milan mafia investigation / trial": ["negative", "organised crime"],
+    "Hydra metaphor for antisemitism": ["negative", "hate metaphor"],
+    "Diablo Hydra sorcerer skill / build": ["neutral", "player skill"],
+    "Hydra freshwater cnidarian / polyp": ["neutral", "organism"]
+  }
+}

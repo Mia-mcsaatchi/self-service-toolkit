@@ -1,0 +1,19 @@
+{
+  "_about": "Hydra-specific sentiment for a stratified sample of categorised mentions (see scripts/stratified_sample.py). Reads the post plus the context label so the model rates sentiment towards the thing Hydra refers to, not the whole post as Brandwatch does.",
+  "fields": [
+    {
+      "names": [
+        "hydra_sentiment",
+        "sentiment_reason"
+      ],
+      "reads_from": [
+        "cleaned_text",
+        "original_title",
+        "context"
+      ],
+      "is_cluster": true,
+      "mode": "default",
+      "prompt": "The \"context\" field says what \"Hydra\" refers to in this post (a product, organisation, place, game, person, idea, etc.). Judge the sentiment the author expresses towards THAT thing — not the overall tone of the post, and not the topic around it.\n\n- \"hydra_sentiment\": one of:\n  - \"positive\": the author likes, praises, recommends or is enthusiastic about it.\n  - \"negative\": the author criticises, mocks, fears or condemns it.\n  - \"mixed\": clearly both.\n  - \"neutral\": it is only named, listed or reported on without the author's own evaluation (news reporting is usually neutral).\n- \"sentiment_reason\": the evidence in at most 12 words, in English.\n\nA villain or crime being described is not negative sentiment unless the author expresses a judgement. Never answer \"unsure\"; use \"neutral\" when there is no evaluation."
+    }
+  ]
+}
